@@ -1,0 +1,62 @@
+<!doctype html>
+<head>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-T3c6CoIi6uLrA9TneNEoa7RxnatzjcDSCmG1MXxSR1GAsXEV/Dwwykc2MPK8M2HN" crossorigin="anonymous">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js" integrity="sha384-C6RzsynM9kWDrMNeT87bh95OGNyZPhcTNXj1NW7RuBCsyN/o0jlpcV8Qyq46cDfL" crossorigin="anonymous"></script>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Permanent Marker&display=swap" rel="stylesheet">
+    <script src="GameClient.js"></script>
+    <title>High Noon!</title>
+</head>
+
+<style>
+    html body{
+        background-color: #ffd39ead
+    }
+    #btnGameStartInfo{
+        font-size: 12px;
+        padding-top:10px;
+    }
+    #playerQueue{
+        list-style-type: none;
+        padding: 15;
+    }
+</style>
+
+<div class="container" style="margin:0px;margin-top:25px;">
+  <div class="row">
+    <div class="col-3">
+        <div class="input-group">
+            <input id="playerNameInput" value="StevenCowboy" class="form-control" placeholder="Choose Your Name" />
+        </div><br>
+        <div class="text-center">
+            <button id="joinGameButton" class="btn btn-success btn-lg" type="button">Join Game</button>
+        </div>
+        <div class="text-center">
+            <h3 style="margin-top:30px;">Player Queue</h3>
+            <ul id="playerQueue">
+            </ul>
+        </div>
+    </div>
+    <div class="col-9">
+        <canvas id="canvas" width="1200" height="500" style="border-radius: 4px;"></canvas>
+    </div>
+  </div>
+
+<br>
+
+HIGH Noon
+players can play 2 at a time
+addtionally, players can spectate and join queue for next round
+
+players are either east side or west side 
+
+bell chimes, its high noon, tick tick tick, after between 3 and 10 seconds the server sends a DRAW!!! message to all players 
+
+the fastest player to tap space will win
+
+the screen goes white and a gunshot soung plays,... as the white fades, the winner is shown on the screen still standing  
+
+the winner is givena point above their head and if there are players in the queue, the next player is brought into the game with the winning player
+
+next to each player in the queue is shown the number of wins they have and their position and player name  
+
