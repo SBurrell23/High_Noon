@@ -1,16 +1,32 @@
-const socket = new WebSocket('ws://localhost:8080'); //stayaway.onrender.com
-socket.addEventListener('open', function () {
-    $("#offlineMessage").css("display", "none");
-    socket.addEventListener('message', function (event) {
-        recievedServerMessage(event.data);
-    });
-    requestAnimationFrame(gameLoop);
-});
+var socket = null;
+var reConnectInterval = null;
+var fontFamily = 'Permanent Marker';
 
-socket.addEventListener('close', function(event) {
-    console.log('WebSocket connection closed.');
-    $("#offlineMessage").css("display", "flex");
-});
+function connectWebSocket() {
+    console.log("Attempting to connect to websocket...")
+    clearInterval(reConnectInterval);
+
+    socket = new WebSocket('ws://localhost:8080'); //stayaway.onrender.com
+    socket.addEventListener('open', function () {
+        console.log('WebSocket connection established!');
+        $("#offlineMessage").css("display", "none");
+        socket.addEventListener('message', function (event) {
+            recievedServerMessage(event.data);
+        });
+        requestAnimationFrame(gameLoop);
+    });
+
+
+    socket.addEventListener('close', function(event) {
+        console.log('WebSocket connection closed.');
+        $("#offlineMessage").css("display", "flex");
+        reConnectInterval = setInterval(function() {
+            connectWebSocket();
+        }, 3000) //On disconnect, try to reconnect every 3 seconds
+    });
+}
+
+connectWebSocket();
 
 var globalState = null;
 var playerId = -1;
@@ -25,6 +41,7 @@ function recievedServerMessage(message) {
     else if(message.type == "gs"){
         globalState = message;
         updateLobby(globalState);
+        updateInput(globalState,playerId);
     }
 }
 
@@ -48,7 +65,11 @@ function updateLobby(gs){
         player1Row.append($('<td>').text(player1.name));
         player1Row.append($('<td>').text(player1.wins));
         player1Row.append($('<td>').text(player1.missfire));
-        player1Row.append($('<td>').text(player1.fastestDraw + "ms"));
+        if(player1.fastestDraw > 2900)
+            player1.fastestDraw = "N/A"; 
+        else
+            player1.fastestDraw = player1.fastestDraw + "ms";
+        player1Row.append($('<td>').text(player1.fastestDraw));
         playerQueue.append(player1Row);
     }else if(gs.state == "flashed"){
         player1Row.append($('<td>').text("RED"));
@@ -73,7 +94,11 @@ function updateLobby(gs){
         player2Row.append($('<td>').text(player2.name));
         player2Row.append($('<td>').text(player2.wins));
         player2Row.append($('<td>').text(player2.missfire));
-        player2Row.append($('<td>').text(player2.fastestDraw + "ms"));
+        if(player2.fastestDraw > 2900)
+            player2.fastestDraw = "N/A"; 
+        else
+            player2.fastestDraw = player2.fastestDraw + "ms";
+        player2Row.append($('<td>').text(player2.fastestDraw));
         playerQueue.append(player2Row);
     }else if(gs.state == "flashed"){
         player2Row.append($('<td>').text("BLU"));
@@ -97,9 +122,31 @@ function updateLobby(gs){
         row.append($('<td>').text(player.name));
         row.append($('<td>').text(player.wins));
         row.append($('<td>').text(player.missfire));
-        row.append($('<td>').text(player.fastestDraw + "ms"));
+        if(player.fastestDraw > 2900)
+            player.fastestDraw = "N/A";
+        else
+            player.fastestDraw = player.fastestDraw + "ms";
+        row.append($('<td>').text(player.fastestDraw));
         playerQueue.append(row);
     });
+}
+
+function updateInput(gs,id){
+    if(playerConnected(gs,id)){
+        $("#playerNameInput").prop('disabled', true);
+        $("#joinGameButton").prop('disabled', true);
+    }
+}
+
+function playerConnected(gs,id){
+    for (let i = 0; i < gs.playerQueue.length; i++) 
+        if (gs.playerQueue[i].id == id) 
+            return true;
+    if (gs.player1 && gs.player1.id == id) 
+        return true;
+    if (gs.player2 && gs.player2.id == id) 
+        return true;
+    return false;
 }
 
 function drawGameState(gs) {
@@ -118,8 +165,9 @@ function drawGameState(gs) {
 
     if(gs.state == "draw"){
         drawDrawText(ctx);
-        var event = new KeyboardEvent('keydown', {key: ' ', code: 'Space', which: 32, keyCode: 32});
-        document.dispatchEvent(event);
+        //testing code that smashes space immediately after draw
+        //var event = new KeyboardEvent('keydown', {key: ' ', code: 'Space', which: 32, keyCode: 32});
+        //document.dispatchEvent(event);
     }
 
     if(gs.state == "gameover")
@@ -135,7 +183,7 @@ function drawGameState(gs) {
 
 function drawWaitingForQueue(gs,ctx) {
     ctx.fillStyle = 'black';
-    ctx.font = '30px Arial';
+    ctx.font = '30px ' + fontFamily;
     var text = "";
     if(gs.playerQueue.length == 0)
         text = "Waiting for cowfolk...";
@@ -163,7 +211,7 @@ function drawClock(gs, ctx) {
     const centerY = ctx.canvas.height / 2;
     const radius = 60;
     
-    ctx.fillStyle = 'white';
+    ctx.fillStyle = '#fffaed';
     ctx.beginPath();
     ctx.arc(centerX - 5, centerY - 100, radius, 0, 2 * Math.PI);
     ctx.closePath();
@@ -172,25 +220,25 @@ function drawClock(gs, ctx) {
 
 function drawGameOverText(gs,ctx) {
     ctx.fillStyle = 'black';
-    ctx.font = '45px Arial';
+    ctx.font = '55px ' + fontFamily;
     var text = "Duel Over!";
     var textWidth = ctx.measureText(text).width;
     var textX = (ctx.canvas.width / 2) - (textWidth / 2) - 5;
     var textY = (ctx.canvas.height / 2) - 120;
     ctx.fillText(text, textX, textY);
 
-    ctx.font = '28px Arial';
+    ctx.font = '28px ' + fontFamily;
     text = gs.reasonForEnd;
     textWidth = ctx.measureText(text).width;
     textX = (ctx.canvas.width / 2) - (textWidth / 2) - 5;
-    textY = (ctx.canvas.height / 2) - 50;
+    textY = (ctx.canvas.height / 2) - 40;
     ctx.fillText(text, textX, textY);
 }
 
 function drawHighNoonText(ctx) {
     ctx.fillStyle = 'black';
-    ctx.font = '40px Arial';
-    var text = "ITS HIGH NOON!";
+    ctx.font = '50px ' + fontFamily;
+    var text = "IT'S HIGH NOON!";
     const textWidth = ctx.measureText(text).width;
     const textX = (ctx.canvas.width / 2) - (textWidth / 2) - 5;
     const textY = (ctx.canvas.height / 2) - 90;
@@ -199,11 +247,11 @@ function drawHighNoonText(ctx) {
 
 function drawDrawText(ctx) {
     ctx.fillStyle = 'brown';
-    ctx.font = '80px bold Arial';
+    ctx.font = '120px ' + fontFamily;
     var text = "DRAW!";
     const textWidth = ctx.measureText(text).width;
     const textX = (ctx.canvas.width / 2) - (textWidth / 2) - 5;
-    const textY = (ctx.canvas.height / 2) - 90;
+    const textY = (ctx.canvas.height / 2) - 70;
     ctx.fillText(text, textX, textY);
 }
 
@@ -211,35 +259,65 @@ function drawPlayers(ctx, player1, player2) {
     const canvasWidth = ctx.canvas.width;
     const rectangleWidth = 20;
     const rectangleHeight = 60;
+    const gunWidth = 25;
+    const gunHeight = 8;
 
-    if(player1){
+    if (player1) {
         // Write player1's name above the red rectangle
         ctx.fillStyle = 'black';
-        ctx.font = '12px Arial';
+        ctx.font = '18px ' + fontFamily;
         const textWidth1 = ctx.measureText(player1.name).width;
         const textX1 = 200 + (rectangleWidth / 2) - (textWidth1 / 2);
-        ctx.fillText(player1.name, textX1, ctx.canvas.height - 150);
+        ctx.fillText(player1.name, textX1, ctx.canvas.height - 160);
+
+        // Write player2's fastestDraw next to the player on the right
+        if ((globalState.state == "flashed" || globalState.state == "gameover") && player1.lastDraw != ""){
+            const fastestDrawText = player1.lastDraw + "ms";
+            ctx.fillText(fastestDrawText, 200 - 70, ctx.canvas.height - 110);
+        }
+
         // Draw red rectangle on the left side
         ctx.fillStyle = 'red';
-        if(player1.isDead)
-            ctx.fillRect(150, ctx.canvas.height - 100, rectangleHeight,rectangleWidth);
-        else
+        if (player1.isDead)
+            ctx.fillRect(150, ctx.canvas.height - 100, rectangleHeight, rectangleWidth);
+        else {
             ctx.fillRect(200, ctx.canvas.height - 140, rectangleWidth, rectangleHeight);
+
+            if (globalState.state == "flashed" || globalState.state == "gameover") {
+                ctx.fillStyle = '#5e666e';
+                ctx.fillRect(220, ctx.canvas.height - 145 + (rectangleHeight / 2) - (gunHeight / 2), gunWidth, gunHeight);
+            }
+        }
     }
 
-    if(player2){
+    if (player2) {
         // Write player2's name above the blue rectangle
         ctx.fillStyle = 'black';
-        ctx.font = '12px Arial';
+        ctx.font = '18px ' + fontFamily;
         const textWidth2 = ctx.measureText(player2.name).width;
         const textX2 = (canvasWidth - rectangleWidth) - 200 + (rectangleWidth / 2) - (textWidth2 / 2);
-        ctx.fillText(player2.name, textX2, ctx.canvas.height - 150);
+        ctx.fillText(player2.name, textX2, ctx.canvas.height - 160);
+
+        // Write player2's fastestDraw next to the player on the right
+        if ((globalState.state == "flashed" || globalState.state == "gameover") && player2.lastDraw != ""){
+            const fastestDrawText = player2.lastDraw + "ms";
+            ctx.fillText(fastestDrawText, canvasWidth - 170, ctx.canvas.height - 110);
+        }
+    
+
         // Draw blue rectangle on the right side
         ctx.fillStyle = 'blue';
-        if(player2.isDead)
-            ctx.fillRect((canvasWidth - rectangleWidth) - 195, ctx.canvas.height - 100,rectangleHeight, rectangleWidth);
-        else
+        if (player2.isDead)
+            ctx.fillRect((canvasWidth - rectangleWidth) - 195, ctx.canvas.height - 100, rectangleHeight, rectangleWidth);
+        else {
+            
             ctx.fillRect((canvasWidth - rectangleWidth) - 200, ctx.canvas.height - 140, rectangleWidth, rectangleHeight);
+                
+            if (globalState.state == "flashed" || globalState.state == "gameover") {
+                ctx.fillStyle = '#5e666e';
+                ctx.fillRect((canvasWidth - rectangleWidth) - 200 - gunWidth, ctx.canvas.height - 145 + (rectangleHeight / 2) - (gunHeight / 2), gunWidth, gunHeight);
+            }
+        }
     }
 }
 
@@ -301,9 +379,14 @@ $(document).ready(function() {
     }
 
     $('#joinGameButton').click(function() {
+        var playerName = $('#playerNameInput').val();
+        if(playerName == ""){
+          playerName = "Big Iron #"+ (Math.floor(Math.random() * 100) + 1);
+          $('#playerNameInput').val(playerName);
+        }
         socket.send(JSON.stringify({
             type:"playerJoin",
-            name:$('#playerNameInput').val(),
+            name:playerName,
             id:playerId
         }));
     });

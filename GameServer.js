@@ -19,13 +19,13 @@ var playerObject ={
     wins: 0,
     missfire: 0,
     fastestDraw: 5000,
+    lastDraw: "",
     isDead: false
 };
 
+var timeouts = [];
 var drawTime = 0;
-
 var defaultGameState = JSON.parse(JSON.stringify(gs));
-
 const users = new Map();
 
 wss.on('connection', (ws) => {
@@ -72,23 +72,18 @@ wss.on('connection', (ws) => {
         
         if(gs.player1 && gs.player1.id == disconnectedUserId){
             gs.player1 = undefined;
-            gs.state = "resetting";
-            setTimeout(function() {
-                gs.state = "waiting";
-                checkForGameStart();
-            },4000);
+            clearAllTimeouts();
+            gs.state = "waiting";
         }
         else if(gs.player2 && gs.player2.id == disconnectedUserId){
             gs.player2= undefined;
-            gs.state = "resetting";
-            setTimeout(function() {
-                gs.state = "waiting";
-                checkForGameStart();
-            },4000);
+            clearAllTimeouts();
+            gs.state = "waiting";
         }
 
         if(users.size === 0) {
             console.log('All clients disconnected...');
+            clearAllTimeouts();
             resetGameState();
         }
     });
@@ -114,9 +109,9 @@ function checkForGameStart(){
 
     if(gs.player1 && gs.player2){
         gs.state = "highnoon";
-        setTimeout(function() {
+        createTimeout(function() {
             gs.state = "ticktock";
-            setTimeout(function() {
+            createTimeout(function() {
                 if(gs.state == "ticktock"){ //if nobody missfired...
                     gs.state = "draw";
                     drawTime = Date.now();
@@ -125,7 +120,7 @@ function checkForGameStart(){
                         if (client.readyState === WebSocket.OPEN) 
                             client.send(JSON.stringify(gs));
                     });
-                    setTimeout(function() {
+                    createTimeout(function() {
                         if(gs.state == "draw")
                             playerShot("peace");
                     }, 3000); //3 seconds and then peace is not an option
@@ -147,6 +142,8 @@ function getPlayerById(id) {
 
 function playerShot(id){
     gs.reasonForEnd = "";
+    gs.player1.lastDraw = "";
+    gs.player2.lastDraw = "";
 
     var timeToShoot = parseInt(Date.now() - parseInt(drawTime));
 
@@ -173,6 +170,7 @@ function playerShot(id){
         if(gs.player1.id == id){
             console.log( gs.player1.name + " shot " + gs.player2.name) + " dead!";
             gs.player1.wins += 1;
+            gs.player1.lastDraw = timeToShoot;
             if(timeToShoot < parseInt(gs.player1.fastestDraw))
                 gs.player1.fastestDraw = timeToShoot;
             gs.player2.isDead = true;
@@ -181,6 +179,7 @@ function playerShot(id){
         else if(gs.player2.id == id){
             console.log( gs.player2.name + " shot " + gs.player1.name) + " dead!";
             gs.player2.wins += 1;
+            gs.player2.lastDraw = timeToShoot;
             if(timeToShoot <  parseInt(gs.player2.fastestDraw))
                 gs.player2.fastestDraw = timeToShoot;
             gs.player1.isDead = true;
@@ -193,7 +192,7 @@ function playerShot(id){
         if (client.readyState === WebSocket.OPEN)
             client.send(JSON.stringify(gs));
     });
-    setTimeout(function() {
+    createTimeout(function() {
         gs.state = "gameover";
         //BOTH Players can die if peace was chosen
         if(gs.player1 && gs.player1.isDead){
@@ -206,9 +205,9 @@ function playerShot(id){
             gs.playerQueue.push(gs.player2);
             gs.player2 = undefined;
         } 
-        setTimeout(function() {
+        createTimeout(function() {
             gs.state = "resetting";// This state is temporary so we can show game over and players for a while before moving on
-            setTimeout(function() {
+            createTimeout(function() {
                 gs.state = "waiting";
                 checkForGameStart();
             },3000); //Short delay before attempting to immediately queue in next player...
@@ -227,6 +226,19 @@ function resetGameState(){
 
 function updatePlayTime(){
     gs.playTime += 1;
+}
+
+function createTimeout(fn, delay) {
+    let timeoutId = setTimeout(fn, delay);
+    timeouts.push(timeoutId);
+}
+
+//This is really only called if player1 or player2 disconnects at any time to preserver the proper game state
+function clearAllTimeouts() {
+    for (let timeoutId of timeouts) {
+        clearTimeout(timeoutId);
+    }
+    timeouts = [];
 }
 
 setInterval(function() {
