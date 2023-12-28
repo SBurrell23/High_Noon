@@ -11,7 +11,7 @@ function connectWebSocket() {
     
     clearInterval(reConnectInterval);
 
-    socket = new WebSocket('wss://highnoon.onrender.com'); //wss://highnoon.onrender.com
+    socket = new WebSocket('wss://highnoon.onrender.com'); //wss://highnoon.onrender.com // ws://localhost:8080
     socket.addEventListener('open', function () {
         console.log('WebSocket connection established!');
         $("#offlineMessage").css("display", "none");
