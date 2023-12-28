@@ -3,7 +3,12 @@ var reConnectInterval = null;
 var fontFamily = 'Permanent Marker';
 
 function connectWebSocket() {
-    console.log("Attempting to connect to websocket...")
+    console.log("Attempting to connect to websocket...");
+    globalState = null;
+    playerId = -1;
+    $("#playerNameInput").prop('disabled', false);
+    $("#joinGameButton").prop('disabled', false);
+    
     clearInterval(reConnectInterval);
 
     socket = new WebSocket('ws://localhost:8080'); //stayaway.onrender.com
@@ -19,6 +24,7 @@ function connectWebSocket() {
 
     socket.addEventListener('close', function(event) {
         console.log('WebSocket connection closed.');
+        stopAllSounds();
         $("#offlineMessage").css("display", "flex");
         reConnectInterval = setInterval(function() {
             connectWebSocket();
@@ -30,6 +36,14 @@ connectWebSocket();
 
 var globalState = null;
 var playerId = -1;
+
+var sounds  = {
+    mainMusic: new Audio('sounds/mainMusic.mp3'),
+    highNoon: new Audio('sounds/highNoon.mp3'),
+    tollingBell: new Audio('sounds/tollingBell.wav'),
+    gunShot: new Audio('sounds/gunShot.wav'),
+    whipCracked: new Audio('sounds/whipCracked.mp3')
+}
 
 function recievedServerMessage(message) {
     var message = JSON.parse(message);
@@ -51,6 +65,26 @@ function gameLoop(gs) {
         drawGameState(gs);
     }
     requestAnimationFrame(gameLoop); // schedule next game loop
+}
+
+function playSound(soundName, volume = 1.0) {
+    // Only play the sound if it's not currently playing
+    if (sounds[soundName].paused) {
+        sounds[soundName].volume = volume;
+        sounds[soundName].play();
+    }
+}
+
+function stopSound(soundName) {
+    sounds[soundName].pause();
+    sounds[soundName].currentTime = 0;
+}
+
+function stopAllSounds() {
+    for (let soundName in sounds) {
+        sounds[soundName].pause();
+        sounds[soundName].currentTime = 0;
+    }
 }
 
 //Looks at the player list, and updates the lobby inputs according to each players state
@@ -149,6 +183,11 @@ function playerConnected(gs,id){
     return false;
 }
 
+var tollOnce = true;
+var shootOnce = true;
+var noonOnce = true;
+var gameOverOnce = true;
+var whipCrackedOnce = true;
 function drawGameState(gs) {
     // Get a reference to the canvas context
     var ctx = document.getElementById('canvas').getContext('2d');
@@ -157,11 +196,30 @@ function drawGameState(gs) {
     
     drawPlayers(ctx, gs.player1, gs.player2);
 
-    if(gs.state == "highnoon")
+    if(gs.state == "highnoon"){
+        shootOnce = true;
+        tollOnce = true;
+        noonOnce = true;
+        if(whipCrackedOnce){
+            playSound("whipCracked",.35);
+            whipCrackedOnce = false;
+        }
+        stopSound("mainMusic");
         drawHighNoonText(ctx);
+    }
 
-    if(gs.state == "ticktock")
+    if(gs.state == "ticktock"){
+        whipCrackedOnce = true;
+        if(tollOnce){
+            playSound("tollingBell",.50);
+            tollOnce = false;
+         }
+        if(noonOnce){
+            playSound("highNoon",.45);
+            noonOnce = false;
+        }
         drawClock(gs,ctx);
+    }
 
     if(gs.state == "draw"){
         drawDrawText(ctx);
@@ -170,14 +228,30 @@ function drawGameState(gs) {
         //document.dispatchEvent(event);
     }
 
-    if(gs.state == "gameover")
-        drawGameOverText(gs,ctx);
-
-    if(gs.state == "flashed" || gs.state == "gameover")
+    if(gs.state == "flashed" || gs.state == "gameover"){
+        if(shootOnce){
+            stopSound("highNoon");
+            playSound("gunShot",.45);
+            shootOnce = false;
+        }
         drawFlashed(ctx);
+    }
 
-    if(gs.state == "resetting" || gs.state == "waiting")
+    if(gs.state == "gameover"){
+        if(gameOverOnce){
+            playSound("mainMusic",.35);
+        }
+        if(whipCrackedOnce){
+            playSound("whipCracked",.35);
+            whipCrackedOnce = false;
+        }
+        drawGameOverText(gs,ctx);
+    }
+
+    if(gs.state == "resetting" || gs.state == "waiting"){
+        whipCrackedOnce = true;
         drawWaitingForQueue(gs,ctx);
+    }
 
 }   
 
@@ -368,8 +442,6 @@ $(document).keydown(function(e) {
         if(e.which == 32)
             shoot(e);
     }
-    if(e.which == 32)
-        e.preventDefault();
 });
 
 $(document).ready(function() {
@@ -384,11 +456,19 @@ $(document).ready(function() {
           playerName = "Big Iron #"+ (Math.floor(Math.random() * 100) + 1);
           $('#playerNameInput').val(playerName);
         }
+        playSound("whipCracked",.35);
+        playSound("mainMusic",.35);
         socket.send(JSON.stringify({
             type:"playerJoin",
             name:playerName,
             id:playerId
         }));
+    });
+
+    $('#playerNameInput').keypress(function(e) {
+        if (e.which === 13) {
+            $('#joinGameButton').click();
+        }
     });
 });
 

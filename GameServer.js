@@ -125,8 +125,8 @@ function checkForGameStart(){
                             playerShot("peace");
                     }, 3000); //3 seconds and then peace is not an option
                 }
-            }, getRandSeconds(2,4)); //rand x seconds after ticktock, draw
-        }, 3000); //x seconds after high noon, show the clock
+            }, getRandSeconds(3,18)); //rand x seconds after ticktock, draw
+        }, 4000); //x seconds after high noon, show the clock
     }
 }
 
@@ -210,8 +210,8 @@ function playerShot(id){
             createTimeout(function() {
                 gs.state = "waiting";
                 checkForGameStart();
-            },3000); //Short delay before attempting to immediately queue in next player...
-        },4000);//x seconds after displaying game over message,,reset
+            },4200); //Short delay before attempting to immediately queue in next player...
+        },5200);//x seconds after displaying game over message,,reset
     },3300); //x seconds after gunshot, show gameover
     
 }
