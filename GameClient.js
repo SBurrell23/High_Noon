@@ -116,8 +116,11 @@ function drawGameState(gs) {
     if(gs.state == "ticktock")
         drawClock(gs,ctx);
 
-    if(gs.state == "draw")
+    if(gs.state == "draw"){
         drawDrawText(ctx);
+        var event = new KeyboardEvent('keydown', {key: ' ', code: 'Space', which: 32, keyCode: 32});
+        document.dispatchEvent(event);
+    }
 
     if(gs.state == "gameover")
         drawGameOverText(gs,ctx);

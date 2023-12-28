@@ -120,6 +120,11 @@ function checkForGameStart(){
                 if(gs.state == "ticktock"){ //if nobody missfired...
                     gs.state = "draw";
                     drawTime = Date.now();
+                    //On draw, immediately send the draw state to the clients
+                    wss.clients.forEach((client) => {
+                        if (client.readyState === WebSocket.OPEN) 
+                            client.send(JSON.stringify(gs));
+                    });
                     setTimeout(function() {
                         if(gs.state == "draw")
                             playerShot("peace");
@@ -184,15 +189,19 @@ function playerShot(id){
     }
 
     gs.state = "flashed";
+    wss.clients.forEach((client) => { //Immediately send the flashed state to the clients
+        if (client.readyState === WebSocket.OPEN)
+            client.send(JSON.stringify(gs));
+    });
     setTimeout(function() {
         gs.state = "gameover";
         //BOTH Players can die if peace was chosen
-        if(gs.player1.isDead){
+        if(gs.player1 && gs.player1.isDead){
             gs.player1.isDead = false;
             gs.playerQueue.push(gs.player1);
             gs.player1 = undefined;
         }
-        if(gs.player2.isDead){
+        if(gs.player2 && gs.player2.isDead){
             gs.player2.isDead = false;
             gs.playerQueue.push(gs.player2);
             gs.player2 = undefined;
@@ -203,8 +212,8 @@ function playerShot(id){
                 gs.state = "waiting";
                 checkForGameStart();
             },3000); //Short delay before attempting to immediately queue in next player...
-        },3800);//x seconds after displaying game over message,,reset
-    },3200); //x seconds after gunshot, show gameover
+        },4000);//x seconds after displaying game over message,,reset
+    },3300); //x seconds after gunshot, show gameover
     
 }
 
@@ -227,8 +236,7 @@ setInterval(function() {
         checkForGameStart();
 
     wss.clients.forEach((client) => {
-        if (client.readyState === WebSocket.OPEN) {
+        if (client.readyState === WebSocket.OPEN)
             client.send(JSON.stringify(gs));
-        }
     });
 }, 50);
