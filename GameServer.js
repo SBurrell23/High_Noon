@@ -125,8 +125,8 @@ function checkForGameStart(){
                             playerShot("peace");
                     }, 3000); //3 seconds and then peace is not an option
                 }
-            }, getRandSeconds(3,18)); //rand x seconds after ticktock, draw
-        }, 4000); //x seconds after high noon, show the clock
+            }, getRandSeconds(5,17)); //rand x seconds after ticktock, draw
+        }, 5100); //x seconds after high noon, show the clock
     }
 }
 

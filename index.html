@@ -21,7 +21,14 @@
     #queueHeader{
         font-size: 25px;
     }
-    #playerQueue, #queueHeader{
+    #rulesHeader{
+        font-size:22px;
+    }
+    #rulesText{
+        font-size:15px;
+        font-weight: bold;
+    }
+    #playerQueue, #queueHeader, #rulesHeader{
         font-family: 'Domine';
     }
     #joinInputs{
@@ -61,6 +68,15 @@
                 <tbody>
                 </tbody>
             </table>
+
+            <br>
+            <div id="rulesHeader">How To Play</div>
+            <span class="text-center" style="width:200px;"><hr style="margin:5px;"></span>
+            <div id="rulesText" class="text-center">
+                <div style="margin-bottom:8px;margin-top:10px;">Wait for the DRAW!</div>
+                <div>Press [Space] to shoot!</div>
+
+            </div>
         </div>
     </div>
     <div class="col-8">
@@ -73,38 +89,3 @@
 
 
 <br>
-
-HIGH Noon
-players can play 2 at a time
-addtionally, players can spectate and join queue for next round
-
-players are either east side or west side 
-
-bell chimes, its high noon, tick tick tick, after between 3 and 10 seconds the server sends a DRAW!!! message to all players 
-
-the fastest player to tap space will win
-
-the screen goes white and a gunshot soung plays,... as the white fades, the winner is shown on the screen still standing  
-
-the winner is givena point above their head and if there are players in the queue, the next player is brought into the game with the winning player
-
-next to each player in the queue is shown the number of wins they have and their position and player name  
-
-
-
-
-todo 
-DONE - assigen random id on server side and send back to client for storage 
-DONE - when client loads, check storage for id and use that... 
-
-on server side, if client sends id and user is not anywhere in game, send back new id and replace 
-if client sends -1, send back new id and replace
-if id is in game alreaedy and connected, send back no multiple clients 
-
-
-DONE - if player shoots too early, kill them and call it a misfire
-DONE - if nobody shoots 3 seconds after the DRAW, kill both players and tell them peace is not an option 
-
-dont show quickdraw time if > 3000ms
-
-show winning players draw time next to them...

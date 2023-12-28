@@ -28,7 +28,7 @@ function connectWebSocket() {
         $("#offlineMessage").css("display", "flex");
         reConnectInterval = setInterval(function() {
             connectWebSocket();
-        }, 3000) //On disconnect, try to reconnect every 3 seconds
+        }, 1000) //On disconnect, try to reconnect every 3 seconds
     });
 }
 
@@ -39,10 +39,11 @@ var playerId = -1;
 
 var sounds  = {
     mainMusic: new Audio('sounds/mainMusic.mp3'),
-    highNoon: new Audio('sounds/highNoon.mp3'),
+    tickTock: new Audio('sounds/tickTock.mp3'),
     tollingBell: new Audio('sounds/tollingBell.wav'),
     gunShot: new Audio('sounds/gunShot.wav'),
-    whipCracked: new Audio('sounds/whipCracked.mp3')
+    whipCracked: new Audio('sounds/whipCracked.mp3'),
+    highNoon: new Audio('sounds/itsHighNoon.mp3'),
 }
 
 function recievedServerMessage(message) {
@@ -185,9 +186,11 @@ function playerConnected(gs,id){
 
 var tollOnce = true;
 var shootOnce = true;
-var noonOnce = true;
+var drawOnce = true;
+var tickTockOnce = true;
 var gameOverOnce = true;
 var whipCrackedOnce = true;
+var highNoonOnce = true;
 function drawGameState(gs) {
     // Get a reference to the canvas context
     var ctx = document.getElementById('canvas').getContext('2d');
@@ -199,12 +202,21 @@ function drawGameState(gs) {
     if(gs.state == "highnoon"){
         shootOnce = true;
         tollOnce = true;
-        noonOnce = true;
+        tickTockOnce = true;
+        drawOnce = true;
         if(whipCrackedOnce){
             playSound("whipCracked",.35);
             whipCrackedOnce = false;
         }
-        stopSound("mainMusic");
+        if(highNoonOnce){
+            stopSound("mainMusic");
+            playSound("highNoon",.45);
+            highNoonOnce = false;
+        }
+        if(tickTockOnce){
+            playSound("tickTock",.45);
+            tickTockOnce = false;
+        }
         drawHighNoonText(ctx);
     }
 
@@ -214,14 +226,15 @@ function drawGameState(gs) {
             playSound("tollingBell",.50);
             tollOnce = false;
          }
-        if(noonOnce){
-            playSound("highNoon",.45);
-            noonOnce = false;
-        }
         drawClock(gs,ctx);
     }
 
     if(gs.state == "draw"){
+        if(drawOnce){
+            playSound("whipCracked",.35);
+            stopSound("tickTock");
+            drawOnce = false;
+        }
         drawDrawText(ctx);
         //testing code that smashes space immediately after draw
         //var event = new KeyboardEvent('keydown', {key: ' ', code: 'Space', which: 32, keyCode: 32});
@@ -230,7 +243,7 @@ function drawGameState(gs) {
 
     if(gs.state == "flashed" || gs.state == "gameover"){
         if(shootOnce){
-            stopSound("highNoon");
+            stopSound("tickTock");
             playSound("gunShot",.45);
             shootOnce = false;
         }
@@ -241,15 +254,12 @@ function drawGameState(gs) {
         if(gameOverOnce){
             playSound("mainMusic",.35);
         }
-        if(whipCrackedOnce){
-            playSound("whipCracked",.35);
-            whipCrackedOnce = false;
-        }
         drawGameOverText(gs,ctx);
     }
 
     if(gs.state == "resetting" || gs.state == "waiting"){
         whipCrackedOnce = true;
+        highNoonOnce = true;
         drawWaitingForQueue(gs,ctx);
     }
 
