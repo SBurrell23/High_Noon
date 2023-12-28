@@ -361,7 +361,7 @@ function drawPlayers(ctx, player1, player2) {
         }
 
         // Draw red rectangle on the left side
-        ctx.fillStyle = 'red';
+        ctx.fillStyle = '#E53737';
         if (player1.isDead)
             ctx.fillRect(150, ctx.canvas.height - 100, rectangleHeight, rectangleWidth);
         else {
@@ -390,7 +390,7 @@ function drawPlayers(ctx, player1, player2) {
     
 
         // Draw blue rectangle on the right side
-        ctx.fillStyle = 'blue';
+        ctx.fillStyle = '#3737E5';
         if (player2.isDead)
             ctx.fillRect((canvasWidth - rectangleWidth) - 195, ctx.canvas.height - 100, rectangleHeight, rectangleWidth);
         else {
