@@ -1,9 +1,15 @@
 const socket = new WebSocket('ws://localhost:8080'); //stayaway.onrender.com
 socket.addEventListener('open', function () {
+    $("#offlineMessage").css("display", "none");
     socket.addEventListener('message', function (event) {
         recievedServerMessage(event.data);
     });
     requestAnimationFrame(gameLoop);
+});
+
+socket.addEventListener('close', function(event) {
+    console.log('WebSocket connection closed.');
+    $("#offlineMessage").css("display", "flex");
 });
 
 var globalState = null;
@@ -33,45 +39,56 @@ function gameLoop(gs) {
 //Looks at the player list, and updates the lobby inputs according to each players state
 function updateLobby(gs){
     var playerQueue = $('#playerQueue tbody');
+    playerQueue.empty(); // Clear the existing player queue
 
-    if(gs.state != "flashed"){
-        playerQueue.empty(); // Clear the existing player queue
-        var player1 = gs.player1;
-        if(player1){
-            var player1Row = $('<tr class=\'redQueue\' >');
-            player1Row.append($('<td>').text("RED"));
-            player1Row.append($('<td>').text(player1.name));
-            player1Row.append($('<td>').text(player1.wins));
-            player1Row.append($('<td>').text(player1.missfire));
-            player1Row.append($('<td>').text(player1.fastestDraw));
-            playerQueue.append(player1Row);
-        }else{
-            var player1Row = $('<tr class=\'redQueue\' >');
-            player1Row.append($('<td>').text("RED"));
-            player1Row.append($('<td>').text("-"));
-            player1Row.append($('<td>').text("-"));
-            player1Row.append($('<td>').text("-"));
-            player1Row.append($('<td>').text("-"));
-            playerQueue.append(player1Row);
-        }
-        var player2 = gs.player2;
-        if(player2){
-            var player2Row = $('<tr class=\'blueQueue\' >');
-            player2Row.append($('<td>').text("BLU"));
-            player2Row.append($('<td>').text(player2.name));
-            player2Row.append($('<td>').text(player2.wins));
-            player2Row.append($('<td>').text(player2.missfire));
-            player2Row.append($('<td>').text(player2.fastestDraw));
-            playerQueue.append(player2Row);
-        }else{
-            var player2Row = $('<tr class=\'blueQueue\' >');
-            player2Row.append($('<td>').text("BLU"));
-            player2Row.append($('<td>').text("-"));
-            player2Row.append($('<td>').text("-"));
-            player2Row.append($('<td>').text("-"));
-            player2Row.append($('<td>').text("-"));
-            playerQueue.append(player2Row);
-        }
+    var player1 = gs.player1;
+    var player1Row = $('<tr class=\'redQueue\' >');
+    if(player1 && gs.state != "flashed"){
+        player1Row.append($('<td>').text("RED"));
+        player1Row.append($('<td>').text(player1.name));
+        player1Row.append($('<td>').text(player1.wins));
+        player1Row.append($('<td>').text(player1.missfire));
+        player1Row.append($('<td>').text(player1.fastestDraw + "ms"));
+        playerQueue.append(player1Row);
+    }else if(gs.state == "flashed"){
+        player1Row.append($('<td>').text("RED"));
+        player1Row.append($('<td>').text("?"));
+        player1Row.append($('<td>').text("?"));
+        player1Row.append($('<td>').text("?"));
+        player1Row.append($('<td>').text("?"));
+        playerQueue.append(player1Row);
+    }else{
+        player1Row.append($('<td>').text("RED"));
+        player1Row.append($('<td>').text("-"));
+        player1Row.append($('<td>').text("-"));
+        player1Row.append($('<td>').text("-"));
+        player1Row.append($('<td>').text("-"));
+        playerQueue.append(player1Row);
+    }
+
+    var player2 = gs.player2;
+    var player2Row = $('<tr class=\'blueQueue\' >');
+    if(player2 && gs.state != "flashed"){
+        player2Row.append($('<td>').text("BLU"));
+        player2Row.append($('<td>').text(player2.name));
+        player2Row.append($('<td>').text(player2.wins));
+        player2Row.append($('<td>').text(player2.missfire));
+        player2Row.append($('<td>').text(player2.fastestDraw + "ms"));
+        playerQueue.append(player2Row);
+    }else if(gs.state == "flashed"){
+        player2Row.append($('<td>').text("BLU"));
+        player2Row.append($('<td>').text("?"));
+        player2Row.append($('<td>').text("?"));
+        player2Row.append($('<td>').text("?"));
+        player2Row.append($('<td>').text("?"));
+        playerQueue.append(player2Row);
+    }else{
+        player2Row.append($('<td>').text("BLU"));
+        player2Row.append($('<td>').text("-"));
+        player2Row.append($('<td>').text("-"));
+        player2Row.append($('<td>').text("-"));
+        player2Row.append($('<td>').text("-"));
+        playerQueue.append(player2Row);
     }
 
     gs.playerQueue.forEach(function(player, index) {
@@ -80,7 +97,7 @@ function updateLobby(gs){
         row.append($('<td>').text(player.name));
         row.append($('<td>').text(player.wins));
         row.append($('<td>').text(player.missfire));
-        row.append($('<td>').text(player.fastestDraw));
+        row.append($('<td>').text(player.fastestDraw + "ms"));
         playerQueue.append(row);
     });
 }

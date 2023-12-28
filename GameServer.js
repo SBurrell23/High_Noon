@@ -18,9 +18,11 @@ var playerObject ={
     isConnected: false,
     wins: 0,
     missfire: 0,
-    fastestDraw: 0,
+    fastestDraw: 5000,
     isDead: false
 };
+
+var drawTime = 0;
 
 var defaultGameState = JSON.parse(JSON.stringify(gs));
 
@@ -117,12 +119,13 @@ function checkForGameStart(){
             setTimeout(function() {
                 if(gs.state == "ticktock"){ //if nobody missfired...
                     gs.state = "draw";
+                    drawTime = Date.now();
                     setTimeout(function() {
                         if(gs.state == "draw")
                             playerShot("peace");
                     }, 3000); //3 seconds and then peace is not an option
                 }
-            }, getRandSeconds(4,15)); //rand x seconds after ticktock, draw
+            }, getRandSeconds(2,4)); //rand x seconds after ticktock, draw
         }, 3000); //x seconds after high noon, show the clock
     }
 }
@@ -140,6 +143,8 @@ function getPlayerById(id) {
 function playerShot(id){
     gs.reasonForEnd = "";
 
+    var timeToShoot = parseInt(Date.now() - parseInt(drawTime));
+
     if(id == "peace"){
         gs.player1.wins -= 1;
         gs.player1.isDead = true;
@@ -150,6 +155,10 @@ function playerShot(id){
     else if(gs.state == "ticktock"){
         var player = getPlayerById(id);
         console.log("Player missfired: " + player.name);
+        if(player.id == gs.player1.id)
+            gs.player2.wins += 1;
+        else
+            gs.player1.wins += 1;
         player.missfire +=1;
         player.isDead = true;
         gs.reasonForEnd = player.name + " missfired!";
@@ -159,12 +168,16 @@ function playerShot(id){
         if(gs.player1.id == id){
             console.log( gs.player1.name + " shot " + gs.player2.name) + " dead!";
             gs.player1.wins += 1;
+            if(timeToShoot < parseInt(gs.player1.fastestDraw))
+                gs.player1.fastestDraw = timeToShoot;
             gs.player2.isDead = true;
             gs.reasonForEnd = gs.player1.name + " wins!";
         }
         else if(gs.player2.id == id){
             console.log( gs.player2.name + " shot " + gs.player1.name) + " dead!";
             gs.player2.wins += 1;
+            if(timeToShoot <  parseInt(gs.player2.fastestDraw))
+                gs.player2.fastestDraw = timeToShoot;
             gs.player1.isDead = true;
             gs.reasonForEnd = gs.player2.name + " wins!";
         }
@@ -190,8 +203,8 @@ function playerShot(id){
                 gs.state = "waiting";
                 checkForGameStart();
             },3000); //Short delay before attempting to immediately queue in next player...
-        },3500);//x seconds after displaying game over message,,reset
-    },3500); //x seconds after gunshot, show gameover
+        },3800);//x seconds after displaying game over message,,reset
+    },3200); //x seconds after gunshot, show gameover
     
 }
 

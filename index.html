@@ -29,12 +29,12 @@
     <div class="col-4">
         <div class="input-group">
             <div class="input-group" id="joinInputs">
-                <input id="playerNameInput" class="form-control" placeholder="Choose a name partner" />
+                <input id="playerNameInput" maxlength="15" class="form-control" placeholder="Choose a name partner" />
                 <button class="btn btn-success" id="joinGameButton" type="button">Deal Me In</button>
             </div>
         </div>
         <div class="text-center">
-            <h3 style="margin-top:30px;">Player Queue</h3>
+            <h3 style="margin-top:30px;">Gallows Queue</h3>
             <table class="table table-sm" id="playerQueue">
                 <thead>
                     <tr>
@@ -53,7 +53,11 @@
     <div class="col-8">
         <canvas id="canvas" width="1200" height="500" style="border-radius: 4px;"></canvas>
     </div>
-  </div>
+</div>
+<div id="offlineMessage" style="display:flex;position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-color: #ff7979; color: black;justify-content: center; align-items: center; font-size: 34px;z-index: 10000;">
+    <span>Game server offline! You may need to refresh.</span>
+</div>
+
 
 <br>
 
