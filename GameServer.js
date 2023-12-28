@@ -25,6 +25,7 @@ var playerObject ={
 
 var timeouts = [];
 var drawTime = 0;
+var recordFirstShot = true;
 var defaultGameState = JSON.parse(JSON.stringify(gs));
 const users = new Map();
 
@@ -102,6 +103,8 @@ function playerConnected(id){
 }
 
 function checkForGameStart(){
+    recordFirstShot = true;
+
     if(gs.player1 == undefined)
         gs.player1 = gs.playerQueue.shift();
     else if(gs.player2 == undefined)
@@ -141,6 +144,13 @@ function getPlayerById(id) {
 }
 
 function playerShot(id){
+    //Only record the first players shot, reset this later.
+    if(recordFirstShot){
+        recordFirstShot = false;
+    }else{
+        return;
+    }
+
     gs.reasonForEnd = "";
     gs.player1.lastDraw = "";
     gs.player2.lastDraw = "";
@@ -211,7 +221,7 @@ function playerShot(id){
                 gs.state = "waiting";
                 checkForGameStart();
             },4200); //Short delay before attempting to immediately queue in next player...
-        },5200);//x seconds after displaying game over message,,reset
+        },5800);//x seconds after displaying game over message,,reset
     },3300); //x seconds after gunshot, show gameover
     
 }
