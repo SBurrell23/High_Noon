@@ -12,13 +12,14 @@ var playerId = -1;
 function recievedServerMessage(message) {
     var message = JSON.parse(message);
 
-    if(message.type == "gs"){
+    if(message.type == "playerId"){
+        playerId = message.id
+        localStorage.setItem("HNPID", playerId);
+    }
+    else if(message.type == "gs"){
         globalState = message;
         updateLobby(globalState);
     }
-
-    if(message.type == "playerId")
-        playerId = message.id
 }
 
 function gameLoop(gs) {
@@ -31,13 +32,56 @@ function gameLoop(gs) {
 
 //Looks at the player list, and updates the lobby inputs according to each players state
 function updateLobby(gs){
-    var playerQueue = $('#playerQueue');
-    playerQueue.empty(); // Clear the existing player queue
+    var playerQueue = $('#playerQueue tbody');
 
-    gs.playerQueue.forEach(function(player) {
-        var li = $('<li>').text(player.name);
-        playerQueue.append(li);
-        
+    if(gs.state != "flashed"){
+        playerQueue.empty(); // Clear the existing player queue
+        var player1 = gs.player1;
+        if(player1){
+            var player1Row = $('<tr class=\'redQueue\' >');
+            player1Row.append($('<td>').text("RED"));
+            player1Row.append($('<td>').text(player1.name));
+            player1Row.append($('<td>').text(player1.wins));
+            player1Row.append($('<td>').text(player1.missfire));
+            player1Row.append($('<td>').text(player1.fastestDraw));
+            playerQueue.append(player1Row);
+        }else{
+            var player1Row = $('<tr class=\'redQueue\' >');
+            player1Row.append($('<td>').text("RED"));
+            player1Row.append($('<td>').text("-"));
+            player1Row.append($('<td>').text("-"));
+            player1Row.append($('<td>').text("-"));
+            player1Row.append($('<td>').text("-"));
+            playerQueue.append(player1Row);
+        }
+        var player2 = gs.player2;
+        if(player2){
+            var player2Row = $('<tr class=\'blueQueue\' >');
+            player2Row.append($('<td>').text("BLU"));
+            player2Row.append($('<td>').text(player2.name));
+            player2Row.append($('<td>').text(player2.wins));
+            player2Row.append($('<td>').text(player2.missfire));
+            player2Row.append($('<td>').text(player2.fastestDraw));
+            playerQueue.append(player2Row);
+        }else{
+            var player2Row = $('<tr class=\'blueQueue\' >');
+            player2Row.append($('<td>').text("BLU"));
+            player2Row.append($('<td>').text("-"));
+            player2Row.append($('<td>').text("-"));
+            player2Row.append($('<td>').text("-"));
+            player2Row.append($('<td>').text("-"));
+            playerQueue.append(player2Row);
+        }
+    }
+
+    gs.playerQueue.forEach(function(player, index) {
+        var row = $('<tr>');
+        row.append($('<td>').text("#" + (index + 1) ));
+        row.append($('<td>').text(player.name));
+        row.append($('<td>').text(player.wins));
+        row.append($('<td>').text(player.missfire));
+        row.append($('<td>').text(player.fastestDraw));
+        playerQueue.append(row);
     });
 }
 
@@ -59,12 +103,32 @@ function drawGameState(gs) {
         drawDrawText(ctx);
 
     if(gs.state == "gameover")
-        drawGameOverText(ctx);
+        drawGameOverText(gs,ctx);
 
     if(gs.state == "flashed" || gs.state == "gameover")
         drawFlashed(ctx);
 
+    if(gs.state == "resetting" || gs.state == "waiting")
+        drawWaitingForQueue(gs,ctx);
+
 }   
+
+function drawWaitingForQueue(gs,ctx) {
+    ctx.fillStyle = 'black';
+    ctx.font = '30px Arial';
+    var text = "";
+    if(gs.playerQueue.length == 0)
+        text = "Waiting for cowfolk...";
+    else if (gs.player1 == undefined && gs.player2 == undefined && gs.playerQueue.length >= 2)
+        text = "Next up is " + gs.playerQueue[0].name + " and " + gs.playerQueue[1].name + "!";
+    else
+        text = "Prepared to die " + gs.playerQueue[0].name + "?";
+
+    const textWidth = ctx.measureText(text).width;
+    const textX = (ctx.canvas.width / 2) - (textWidth / 2) - 5;
+    const textY = (ctx.canvas.height / 2) - 25;
+    ctx.fillText(text, textX, textY);
+}
 
 var flashAlpha = 1;
 function drawFlashed(ctx) {
@@ -86,13 +150,20 @@ function drawClock(gs, ctx) {
     ctx.fill();
 }
 
-function drawGameOverText(ctx) {
+function drawGameOverText(gs,ctx) {
     ctx.fillStyle = 'black';
-    ctx.font = '40px Arial';
-    var text = "Game Over!";
-    const textWidth = ctx.measureText(text).width;
-    const textX = (ctx.canvas.width / 2) - (textWidth / 2) - 5;
-    const textY = (ctx.canvas.height / 2) - 90;
+    ctx.font = '45px Arial';
+    var text = "Duel Over!";
+    var textWidth = ctx.measureText(text).width;
+    var textX = (ctx.canvas.width / 2) - (textWidth / 2) - 5;
+    var textY = (ctx.canvas.height / 2) - 120;
+    ctx.fillText(text, textX, textY);
+
+    ctx.font = '28px Arial';
+    text = gs.reasonForEnd;
+    textWidth = ctx.measureText(text).width;
+    textX = (ctx.canvas.width / 2) - (textWidth / 2) - 5;
+    textY = (ctx.canvas.height / 2) - 50;
     ctx.fillText(text, textX, textY);
 }
 
@@ -192,16 +263,28 @@ function shoot(e){
 }
 
 $(document).keydown(function(e) {
-    if (globalState.state == "draw" && (globalState.player1.id == playerId || globalState.player2.id == playerId))
+    if (
+    (globalState.state == "draw" || globalState.state == "ticktock") && 
+    (globalState.player1.id == playerId || globalState.player2.id == playerId)
+    ){
         if(e.which == 32)
             shoot(e);
+    }
+    if(e.which == 32)
+        e.preventDefault();
 });
 
 $(document).ready(function() {
+    var HNPID = localStorage.getItem('HNPID');
+    if (HNPID) {
+        playerId = HNPID;
+    }
+
     $('#joinGameButton').click(function() {
         socket.send(JSON.stringify({
             type:"playerJoin",
-            name:$('#playerNameInput').val()
+            name:$('#playerNameInput').val(),
+            id:playerId
         }));
     });
 });

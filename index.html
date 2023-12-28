@@ -12,32 +12,45 @@
     html body{
         background-color: #ffd39ead
     }
-    #btnGameStartInfo{
-        font-size: 12px;
-        padding-top:10px;
+    #joinInputs{
+        margin-top:35px;
+        margin-bottom:10px;
     }
-    #playerQueue{
-        list-style-type: none;
-        padding: 15;
+    .redQueue td{
+        color: red;
+    }
+    .blueQueue td{
+        color: blue;
     }
 </style>
 
 <div class="container" style="margin:0px;margin-top:25px;">
   <div class="row">
-    <div class="col-3">
+    <div class="col-4">
         <div class="input-group">
-            <input id="playerNameInput" value="StevenCowboy" class="form-control" placeholder="Choose Your Name" />
-        </div><br>
-        <div class="text-center">
-            <button id="joinGameButton" class="btn btn-success btn-lg" type="button">Join Game</button>
+            <div class="input-group" id="joinInputs">
+                <input id="playerNameInput" class="form-control" placeholder="Choose a name partner" />
+                <button class="btn btn-success" id="joinGameButton" type="button">Deal Me In</button>
+            </div>
         </div>
         <div class="text-center">
             <h3 style="margin-top:30px;">Player Queue</h3>
-            <ul id="playerQueue">
-            </ul>
+            <table class="table table-sm" id="playerQueue">
+                <thead>
+                    <tr>
+                    <th scope="col">#</th>
+                    <th scope="col">Name</th>
+                    <th scope="col">Wins</th>
+                    <th scope="col">Missfires</th>
+                    <th scope="col">Quickdraw</th>
+                    </tr>
+                </thead>
+                <tbody>
+                </tbody>
+            </table>
         </div>
     </div>
-    <div class="col-9">
+    <div class="col-8">
         <canvas id="canvas" width="1200" height="500" style="border-radius: 4px;"></canvas>
     </div>
   </div>
@@ -59,4 +72,19 @@ the screen goes white and a gunshot soung plays,... as the white fades, the winn
 the winner is givena point above their head and if there are players in the queue, the next player is brought into the game with the winning player
 
 next to each player in the queue is shown the number of wins they have and their position and player name  
+
+
+
+
+todo 
+DONE - assigen random id on server side and send back to client for storage 
+DONE - when client loads, check storage for id and use that... 
+
+on server side, if client sends id and user is not anywhere in game, send back new id and replace 
+if client sends -1, send back new id and replace
+if id is in game alreaedy and connected, send back no multiple clients 
+
+
+DONE - if player shoots too early, kill them and call it a misfire
+if nobody shoots 3 seconds after the DRAW, kill both players and tell them peace is not an option 
 

@@ -8,7 +8,8 @@ var gs = {
     playerQueue:[],
     player1:undefined,
     player2:undefined,
-    playTime: 0
+    playTime: 0,
+    reasonForEnd: ""
 };
 
 var playerObject ={
@@ -16,36 +17,40 @@ var playerObject ={
     name: "",
     isConnected: false,
     wins: 0,
-    falseDraws: 0,
+    missfire: 0,
     fastestDraw: 0,
     isDead: false
 };
 
 var defaultGameState = JSON.parse(JSON.stringify(gs));
 
-var canvas = {width: 1200,height: 500};
-
 const users = new Map();
 
-wss.on('connection', (ws, req) => {
+wss.on('connection', (ws) => {
     
     // Send the current game state to the client
     ws.on('message', (message) => {
         message = JSON.parse(message);
 
         if(message.type == "playerJoin"){
-            var newPlayer = JSON.parse(JSON.stringify(playerObject));
-            newPlayer.isConnected = true;
-            newPlayer.name = message.name;
-            newPlayer.id = Date.now();
-            users.set(ws, newPlayer.id);
-            gs.playerQueue.push(newPlayer);
-            console.log("Player joined: " + JSON.stringify(newPlayer));
-            // Send the player's ID back to the client
-            ws.send(JSON.stringify({ type: "playerId", id: newPlayer.id }));
+            console.log("Player join request: " + message.id);
+            if(playerConnected(message.id) == false){
+                var newPlayer = JSON.parse(JSON.stringify(playerObject));
+                newPlayer.isConnected = true;
+                newPlayer.name = message.name;
+                 newPlayer.id = String(Date.now());
+                users.set(ws, newPlayer.id);
+                gs.playerQueue.push(newPlayer);
+                console.log("Player joined: " + JSON.stringify(newPlayer));
+                // Send the player's ID back to the client
+                ws.send(JSON.stringify({ type: "playerId", id: newPlayer.id }));
 
-            if(gs.state == "waiting")
-                checkForGameStart();
+                if(gs.state == "waiting")
+                    checkForGameStart();
+            }else{
+                //Player is already connected
+                console.log("Player already connected: " + message.id);
+            }
         }
 
         if(message.type == "playerShot")
@@ -70,6 +75,17 @@ wss.on('connection', (ws, req) => {
 
 });
 
+function playerConnected(id){
+    for (let i = 0; i < gs.playerQueue.length; i++) 
+        if (gs.playerQueue[i].id == id) 
+            return true;
+    if (gs.player1 && gs.player1.id == id) 
+        return true;
+    if (gs.player2 && gs.player2.id == id) 
+        return true;
+    return false;
+}
+
 function checkForGameStart(){
     if(gs.player1 == undefined)
         gs.player1 = gs.playerQueue.shift();
@@ -77,35 +93,87 @@ function checkForGameStart(){
         gs.player2 = gs.playerQueue.shift();
 
     if(gs.player1 && gs.player2){
+        gs.state = "highnoon";
         setTimeout(function() {
-            gs.state = "highnoon";
+            gs.state = "ticktock";
             setTimeout(function() {
-                gs.state = "ticktock";
-                setTimeout(function() {
+                if(gs.state == "ticktock"){ //if nobody missfired...
                     gs.state = "draw";
-                }, getRandSeconds(1,3)); //rand x seconds after ticktock, draw
-            }, 1000); //x seconds after high noon, show the clock
-        }, 1000); //x second after players are both in, high noon
+                    setTimeout(function() {
+                        if(gs.state == "draw")
+                            playerShot("peace");
+                    }, 3000); //3 seconds and then peace is not an option
+                }
+            }, getRandSeconds(4,15)); //rand x seconds after ticktock, draw
+        }, 3000); //x seconds after high noon, show the clock
+    }
+}
+
+function getPlayerById(id) {
+    if (gs.player1 && gs.player1.id === id) {
+        return gs.player1;
+    } else if (gs.player2 && gs.player2.id === id) {
+        return gs.player2;
+    } else {
+        return null;
     }
 }
 
 function playerShot(id){
-    console.log("Player shot: " + id);
-    if(gs.player1.id == id){
-        gs.player1.wins++;
-        gs.player2.isDead = true;
-    }
-    else if(gs.player2.id == id){
-        gs.player2.wins++;
+    gs.reasonForEnd = "";
+
+    if(id == "peace"){
+        gs.player1.wins -= 1;
         gs.player1.isDead = true;
+        gs.player2.wins -= 1;
+        gs.player2.isDead = true;
+        gs.reasonForEnd = "Peace is not an option!";
     }
-    else
-        console.log("Player shot not found ???" + id);
+    else if(gs.state == "ticktock"){
+        var player = getPlayerById(id);
+        console.log("Player missfired: " + player.name);
+        player.missfire +=1;
+        player.isDead = true;
+        gs.reasonForEnd = player.name + " missfired!";
+        
+    }
+    else if(gs.state == "draw"){
+        if(gs.player1.id == id){
+            console.log( gs.player1.name + " shot " + gs.player2.name) + " dead!";
+            gs.player1.wins += 1;
+            gs.player2.isDead = true;
+            gs.reasonForEnd = gs.player1.name + " wins!";
+        }
+        else if(gs.player2.id == id){
+            console.log( gs.player2.name + " shot " + gs.player1.name) + " dead!";
+            gs.player2.wins += 1;
+            gs.player1.isDead = true;
+            gs.reasonForEnd = gs.player2.name + " wins!";
+        }
+    }
 
     gs.state = "flashed";
     setTimeout(function() {
         gs.state = "gameover";
-    },2000); //x seconds after gunshot, show gameover
+        //BOTH Players can die if peace was chosen
+        if(gs.player1.isDead){
+            gs.player1.isDead = false;
+            gs.playerQueue.push(gs.player1);
+            gs.player1 = undefined;
+        }
+        if(gs.player2.isDead){
+            gs.player2.isDead = false;
+            gs.playerQueue.push(gs.player2);
+            gs.player2 = undefined;
+        } 
+        setTimeout(function() {
+            gs.state = "resetting";// This state is temporary so we can show game over and players for a while before moving on
+            setTimeout(function() {
+                gs.state = "waiting";
+                checkForGameStart();
+            },3000); //Short delay before attempting to immediately queue in next player...
+        },3500);//x seconds after displaying game over message,,reset
+    },3500); //x seconds after gunshot, show gameover
     
 }
 
@@ -123,6 +191,9 @@ function updatePlayTime(){
 
 setInterval(function() {
     updatePlayTime();
+
+    if(gs.state == "waiting")
+        checkForGameStart();
 
     wss.clients.forEach((client) => {
         if (client.readyState === WebSocket.OPEN) {
