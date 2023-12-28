@@ -64,9 +64,27 @@ wss.on('connection', (ws) => {
         console.log('User id ' + users.get(ws) + ' disconnected');
         const disconnectedUserId = users.get(ws);
         users.delete(ws);
+
         // Remove the player from the gs.players array with the id of the disconnected user
         gs.playerQueue = gs.playerQueue.filter(player => player.id !== disconnectedUserId);
         
+        if(gs.player1 && gs.player1.id == disconnectedUserId){
+            gs.player1 = undefined;
+            gs.state = "resetting";
+            setTimeout(function() {
+                gs.state = "waiting";
+                checkForGameStart();
+            },4000);
+        }
+        else if(gs.player2 && gs.player2.id == disconnectedUserId){
+            gs.player2= undefined;
+            gs.state = "resetting";
+            setTimeout(function() {
+                gs.state = "waiting";
+                checkForGameStart();
+            },4000);
+        }
+
         if(users.size === 0) {
             console.log('All clients disconnected...');
             resetGameState();
