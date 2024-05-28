@@ -14,7 +14,7 @@ function connectWebSocket() {
     //wss://highnoon.onrender.com
     //ws://localhost:8080
 
-    socket = new WebSocket('wss://highnoon.onrender.com');  
+    socket = new WebSocket('wss://high-noon-dot-steven-burrell-personal.wm.r.appspot.com');  
     socket.addEventListener('open', function () {
         console.log('WebSocket connection established!');
         $("#offlineMessage").css("display", "none");

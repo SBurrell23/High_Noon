@@ -1,0 +1,16 @@
+runtime: nodejs
+env: flex
+
+service: high-noon
+
+entrypoint: node GameServer.js
+
+manual_scaling:
+  instances: 1
+
+network:
+  session_affinity: true
+
+handlers:
+  - url: /.*
+    script: auto

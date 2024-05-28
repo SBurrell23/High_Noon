@@ -1,5 +1,13 @@
 {
+  "main": "GameServer.js",
   "dependencies": {
     "ws": "^8.15.1"
+  },
+  "engines": {
+    "node": "16.18.0"
+  },
+  "scripts": {
+    "deploy": "gcloud app deploy",
+    "start": "node GameServer.js"
   }
 }
