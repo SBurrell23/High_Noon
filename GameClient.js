@@ -1,81 +1,182 @@
-var socket = null;
-var reConnectInterval = null;
+/*
+ * GameClient.js
+ *
+ * Everything the player sees and touches: the lobby, the canvas, the sounds,
+ * and - the important bit - the local measurement of how fast you drew.
+ *
+ * Your reaction time is (timestamp of your keydown) - (timestamp of the frame
+ * that painted DRAW! on YOUR screen). Both numbers come from the same monotonic
+ * performance clock in this tab. Nothing about that number travels over the
+ * network before it is calculated, so ping cannot shrink it or stretch it, and
+ * the host measures theirs through this exact same code path.
+ */
+
 var fontFamily = 'Permanent Marker';
 
-function connectWebSocket() {
-    console.log("Attempting to connect to websocket...");
-    globalState = null;
-    playerId = -1;
-    $("#playerNameInput").prop('disabled', false);
-    $("#joinGameButton").prop('disabled', false);
-    
-    clearInterval(reConnectInterval);
+var globalState     = null;  //latest authoritative state from the host
+var myId            = null;
+var drawAtHost      = null;  //scheduled draw instant, on the host clock
+var localDrawTs     = null;  //rAF timestamp of the frame that painted DRAW!
+var localDrawActive = false;
+var shotSent        = false;
+var inRoom          = false;
 
-    //wss://highnoon.onrender.com
-    //ws://localhost:8080
-
-    socket = new WebSocket('wss://high-noon-dot-steven-burrell-personal.wm.r.appspot.com');  
-    socket.addEventListener('open', function () {
-        console.log('WebSocket connection established!');
-        $("#offlineMessage").css("display", "none");
-        socket.addEventListener('message', function (event) {
-            recievedServerMessage(event.data);
-        });
-        requestAnimationFrame(gameLoop);
-    });
-
-
-    socket.addEventListener('close', function(event) {
-        console.log('WebSocket connection closed.');
-        stopAllSounds();
-        $("#offlineMessage").css("display", "flex");
-        reConnectInterval = setInterval(function() {
-            connectWebSocket();
-        }, 1000) //On disconnect, try to reconnect every 3 seconds
-    });
-}
-
-connectWebSocket();
-
-var globalState = null;
-var playerId = -1;
-
-var sounds  = {
-    mainMusic: new Audio('sounds/mainMusic.mp3'),
-    tickTock: new Audio('sounds/tickTock.mp3'),
+var sounds = {
+    mainMusic:   new Audio('sounds/mainMusic.mp3'),
+    tickTock:    new Audio('sounds/tickTock.mp3'),
     tollingBell: new Audio('sounds/tollingBell.wav'),
-    gunShot: new Audio('sounds/gunShot.wav'),
+    gunShot:     new Audio('sounds/gunShot.wav'),
     whipCracked: new Audio('sounds/whipCracked.mp3'),
-    highNoon: new Audio('sounds/itsHighNoon.mp3'),
+    highNoon:    new Audio('sounds/itsHighNoon.mp3')
+};
+
+/* =======================================================================
+ * Networking
+ * ==================================================================== */
+function wireNetwork() {
+    PeerNet.on('ready', function (info) {
+        myId   = info.id;
+        inRoom = true;
+        if (info.isHost)
+            GameHost.start();
+        showRoom(info);
+    });
+
+    //Messages from the host (the host gets its own broadcasts here too)
+    PeerNet.on('guestMessage', function (msg) {
+        if (!msg || typeof msg !== 'object') return;
+
+        if (msg.type === 'gs') {
+            applyState(msg);
+        } else if (msg.type === 'schedule') {
+            //The draw instant, handed to us seconds early. From here on our own
+            //clock decides when DRAW! appears - no packet on the critical path.
+            drawAtHost      = msg.drawAt;
+            localDrawActive = false;
+            localDrawTs     = null;
+            shotSent        = false;
+        }
+    });
+
+    PeerNet.on('status', function (text) {
+        $('#connStatus').text(text);
+    });
+
+    PeerNet.on('joinFailed', function (text) {
+        showLobbyError(text);
+        $('#createRoomButton, #joinRoomButton').prop('disabled', false);
+    });
+
+    PeerNet.on('hostGone', function () {
+        inRoom = false;
+        stopAllSounds();
+        $('#offlineMessage span').text('The table has folded. Refresh to ride again.');
+        $('#offlineMessage').css('display', 'flex');
+    });
+
+    PeerNet.on('error', function (err) {
+        if (!inRoom) {
+            showLobbyError(prettyPeerError(err));
+            $('#createRoomButton, #joinRoomButton').prop('disabled', false);
+        }
+    });
+
+    PeerNet.on('clock', updatePing);
 }
 
-function recievedServerMessage(message) {
-    var message = JSON.parse(message);
+function prettyPeerError(err) {
+    var t = err && err.type;
+    if (t === 'peer-unavailable') return 'No table found with that code.';
+    if (t === 'network')          return 'Could not reach the matchmaking service.';
+    if (t === 'browser-incompatible') return 'This browser cannot do peer to peer.';
+    return 'Connection trouble: ' + (t || 'unknown');
+}
 
-    if(message.type == "playerId"){
-        playerId = message.id
-        localStorage.setItem("HNPID", playerId);
+function applyState(gs) {
+    globalState = gs;
+
+    //A fresh round is coming, forget everything about the last one. Clearing the
+    //old schedule matters: a stale draw instant sits in the past, and would flip
+    //us to DRAW! the moment the next tick-tock started.
+    if (gs.state === 'highnoon' || gs.state === 'waiting' || gs.state === 'resetting') {
+        localDrawActive = false;
+        localDrawTs     = null;
+        shotSent        = false;
+        drawAtHost      = null;
     }
-    else if(message.type == "gs"){
-        globalState = message;
-        updateLobby(globalState);
-        updateInput(globalState,playerId);
+
+    updateQueueTable(gs);
+}
+
+/* =======================================================================
+ * The local draw flip - where the stopwatch starts
+ * ==================================================================== */
+function currentPhase() {
+    if (!globalState) return null;
+    //We may have flipped locally a hair before the host's own state change
+    //message shows up. What we render is what we are timed against.
+    if (globalState.state === 'ticktock' && localDrawActive) return 'draw';
+    return globalState.state;
+}
+
+function maybeFlipToDraw(ts) {
+    if (localDrawActive || !globalState) return;
+    if (globalState.state !== 'ticktock' && globalState.state !== 'draw') return;
+
+    var scheduleReached = (drawAtHost !== null && PeerNet.hostNow() >= drawAtHost);
+    //Fallback: if the schedule never reached us, the host's state change still
+    //starts the round for us. We are simply timed from our own later start.
+    var hostSaysDraw = (globalState.state === 'draw');
+
+    if (scheduleReached || hostSaysDraw) {
+        localDrawActive = true;
+        localDrawTs     = ts; //timestamp of the frame that is about to paint DRAW!
     }
 }
 
-function gameLoop(gs) {
+function amDueling() {
     var gs = globalState;
-    if (gs) {
-        drawGameState(gs);
-    }
-    requestAnimationFrame(gameLoop); // schedule next game loop
+    if (!gs || !myId) return false;
+    return (gs.player1 && gs.player1.id === myId) || (gs.player2 && gs.player2.id === myId);
 }
 
-function playSound(soundName, volume = 1.0) {
-    // Only play the sound if it's not currently playing
-    if (sounds[soundName].paused) {
-        sounds[soundName].volume = volume;
-        sounds[soundName].play();
+//Prefer the event's own timestamp over "whenever the handler happened to run",
+//so a busy main thread does not get charged to the player.
+function eventTime(e) {
+    var oe = e.originalEvent || e;
+    var ts = oe ? oe.timeStamp : null;
+    if (typeof ts !== 'number' || !isFinite(ts) || Math.abs(ts - PeerNet.now()) > 1000)
+        return PeerNet.now();
+    return ts;
+}
+
+function pullTrigger(ts) {
+    if (shotSent) return;
+    var phase = currentPhase();
+
+    if (phase === 'ticktock') {
+        shotSent = true;
+        PeerNet.sendToHost({ type: 'shot', kind: 'missfire', atHost: PeerNet.toHost(ts) });
+        return;
+    }
+
+    if (phase !== 'draw' || localDrawTs === null) return;
+
+    var rt = ts - localDrawTs;
+    if (!isFinite(rt) || rt < 0) rt = 0;
+    shotSent = true;
+    PeerNet.sendToHost({ type: 'shot', kind: 'draw', rt: rt, atHost: PeerNet.toHost(ts) });
+}
+
+/* =======================================================================
+ * Sound
+ * ==================================================================== */
+function playSound(soundName, volume) {
+    var s = sounds[soundName];
+    if (s.paused) {
+        s.volume = (volume === undefined) ? 1.0 : volume;
+        var p = s.play();
+        if (p && p.catch) p.catch(function () {});
     }
 }
 
@@ -85,219 +186,236 @@ function stopSound(soundName) {
 }
 
 function stopAllSounds() {
-    for (let soundName in sounds) {
-        sounds[soundName].pause();
-        sounds[soundName].currentTime = 0;
+    for (var name in sounds) {
+        sounds[name].pause();
+        sounds[name].currentTime = 0;
     }
 }
 
-//Looks at the player list, and updates the lobby inputs according to each players state
-function updateLobby(gs){
-    var playerQueue = $('#playerQueue tbody');
-    playerQueue.empty(); // Clear the existing player queue
-
-    var player1 = gs.player1;
-    var player1Row = $('<tr class=\'redQueue\' >');
-    if(player1 && gs.state != "flashed"){
-        player1Row.append($('<td>').text("RED"));
-        player1Row.append($('<td>').text(player1.name));
-        player1Row.append($('<td>').text(player1.wins));
-        player1Row.append($('<td>').text(player1.missfire));
-        if(player1.fastestDraw > 2900)
-            player1.fastestDraw = "N/A"; 
-        else
-            player1.fastestDraw = player1.fastestDraw + "ms";
-        player1Row.append($('<td>').text(player1.fastestDraw));
-        playerQueue.append(player1Row);
-    }else if(gs.state == "flashed"){
-        player1Row.append($('<td>').text("RED"));
-        player1Row.append($('<td>').text("?"));
-        player1Row.append($('<td>').text("?"));
-        player1Row.append($('<td>').text("?"));
-        player1Row.append($('<td>').text("?"));
-        playerQueue.append(player1Row);
-    }else{
-        player1Row.append($('<td>').text("RED"));
-        player1Row.append($('<td>').text("-"));
-        player1Row.append($('<td>').text("-"));
-        player1Row.append($('<td>').text("-"));
-        player1Row.append($('<td>').text("-"));
-        playerQueue.append(player1Row);
+/* =======================================================================
+ * Lobby / room UI
+ * ==================================================================== */
+function nameOrDefault() {
+    var name = $.trim($('#playerNameInput').val());
+    if (name === '') {
+        name = 'Big Iron #' + (Math.floor(Math.random() * 100) + 1);
+        $('#playerNameInput').val(name);
     }
+    return name;
+}
 
-    var player2 = gs.player2;
-    var player2Row = $('<tr class=\'blueQueue\' >');
-    if(player2 && gs.state != "flashed"){
-        player2Row.append($('<td>').text("BLU"));
-        player2Row.append($('<td>').text(player2.name));
-        player2Row.append($('<td>').text(player2.wins));
-        player2Row.append($('<td>').text(player2.missfire));
-        if(player2.fastestDraw > 2900)
-            player2.fastestDraw = "N/A"; 
-        else
-            player2.fastestDraw = player2.fastestDraw + "ms";
-        player2Row.append($('<td>').text(player2.fastestDraw));
-        playerQueue.append(player2Row);
-    }else if(gs.state == "flashed"){
-        player2Row.append($('<td>').text("BLU"));
-        player2Row.append($('<td>').text("?"));
-        player2Row.append($('<td>').text("?"));
-        player2Row.append($('<td>').text("?"));
-        player2Row.append($('<td>').text("?"));
-        playerQueue.append(player2Row);
-    }else{
-        player2Row.append($('<td>').text("BLU"));
-        player2Row.append($('<td>').text("-"));
-        player2Row.append($('<td>').text("-"));
-        player2Row.append($('<td>').text("-"));
-        player2Row.append($('<td>').text("-"));
-        playerQueue.append(player2Row);
+function showLobbyError(text) {
+    $('#lobbyError').text(text).css('display', 'block');
+}
+
+function showRoom(info) {
+    $('#lobbyError').css('display', 'none');
+    $('#lobbyPanel').css('display', 'none');
+    $('#roomPanel').css('display', 'block');
+    $('#roomCodeDisplay').text(info.roomCode);
+    $('#roomRole').text(info.isHost ? 'You are dealing' : 'You are sitting in');
+    try {
+        history.replaceState(null, '', location.pathname + '?table=' + info.roomCode);
+    } catch (e) {}
+    updatePing();
+}
+
+function inviteLink() {
+    return location.origin + location.pathname + '?table=' + PeerNet.roomCode();
+}
+
+function updatePing() {
+    if (!inRoom) return;
+    if (PeerNet.isHost()) {
+        $('#pingDisplay').text('Dealer - 0ms to yourself');
+        return;
     }
+    var c = PeerNet.clock();
+    $('#pingDisplay').text(c.synced ? ('Ping to dealer: ' + Math.round(c.rtt) + 'ms')
+                                    : 'Syncing clocks...');
+}
 
-    gs.playerQueue.forEach(function(player, index) {
+function updateQueueTable(gs) {
+    var tbody = $('#playerQueue tbody');
+    tbody.empty();
+
+    tbody.append(duelistRow(gs, gs.player1, 'RED', 'redQueue'));
+    tbody.append(duelistRow(gs, gs.player2, 'BLU', 'blueQueue'));
+
+    gs.playerQueue.forEach(function (player, index) {
         var row = $('<tr>');
-        row.append($('<td>').text("#" + (index + 1) ));
-        row.append($('<td>').text(player.name));
+        row.append($('<td>').text('#' + (index + 1)));
+        row.append($('<td>').text(nameFor(player)));
         row.append($('<td>').text(player.wins));
         row.append($('<td>').text(player.missfire));
-        if(player.fastestDraw > 2900)
-            player.fastestDraw = "N/A";
-        else
-            player.fastestDraw = player.fastestDraw + "ms";
-        row.append($('<td>').text(player.fastestDraw));
-        playerQueue.append(row);
+        row.append($('<td>').text(formatDraw(player.fastestDraw)));
+        tbody.append(row);
     });
 }
 
-function updateInput(gs,id){
-    if(playerConnected(gs,id)){
-        $("#playerNameInput").prop('disabled', true);
-        $("#joinGameButton").prop('disabled', true);
+function duelistRow(gs, player, label, cls) {
+    var row = $('<tr class="' + cls + '">');
+    row.append($('<td>').text(label));
+
+    //Keep the result under our hat until the flash clears
+    if (gs.state === 'flashed') {
+        for (var i = 0; i < 4; i++) row.append($('<td>').text('?'));
+        return row;
     }
+    if (!player) {
+        for (var j = 0; j < 4; j++) row.append($('<td>').text('-'));
+        return row;
+    }
+    row.append($('<td>').text(nameFor(player)));
+    row.append($('<td>').text(player.wins));
+    row.append($('<td>').text(player.missfire));
+    row.append($('<td>').text(formatDraw(player.fastestDraw)));
+    return row;
 }
 
-function playerConnected(gs,id){
-    for (let i = 0; i < gs.playerQueue.length; i++) 
-        if (gs.playerQueue[i].id == id) 
-            return true;
-    if (gs.player1 && gs.player1.id == id) 
-        return true;
-    if (gs.player2 && gs.player2.id == id) 
-        return true;
-    return false;
+function nameFor(player) {
+    return player.id === myId ? player.name + ' (you)' : player.name;
 }
 
-var tollOnce = true;
-var shootOnce = true;
-var drawOnce = true;
-var tickTockOnce = true;
-var gameOverOnce = true;
+function formatDraw(ms) {
+    return (typeof ms !== 'number' || ms > 2900) ? 'N/A' : ms + 'ms';
+}
+
+/* =======================================================================
+ * Rendering
+ * ==================================================================== */
+var tollOnce        = true;
+var shootOnce       = true;
+var drawOnce        = true;
+var tickTockOnce    = true;
+var gameOverOnce    = true;
 var whipCrackedOnce = true;
-var highNoonOnce = true;
-function drawGameState(gs) {
-    // Get a reference to the canvas context
+var highNoonOnce    = true;
+
+function gameLoop(ts) {
+    if (globalState) {
+        maybeFlipToDraw(ts);
+        drawGameState(globalState, currentPhase());
+    } else {
+        drawIdle();
+    }
+    requestAnimationFrame(gameLoop);
+}
+
+function drawIdle() {
+    var ctx = document.getElementById('canvas').getContext('2d');
+    drawBackround(ctx);
+    ctx.fillStyle = 'black';
+    ctx.font = '30px ' + fontFamily;
+    var text = inRoom ? 'Waiting on the wire...' : 'Start a table or join one, partner.';
+    var w = ctx.measureText(text).width;
+    ctx.fillText(text, (ctx.canvas.width / 2) - (w / 2) - 5, (ctx.canvas.height / 2) - 25);
+}
+
+function drawGameState(gs, phase) {
     var ctx = document.getElementById('canvas').getContext('2d');
 
     drawBackround(ctx);
-    
-    drawPlayers(ctx, gs.player1, gs.player2);
+    drawPlayers(ctx, phase, gs.player1, gs.player2);
 
-    if(gs.state == "highnoon"){
+    if (phase === 'highnoon') {
         shootOnce = true;
         tollOnce = true;
         tickTockOnce = true;
         drawOnce = true;
-        if(whipCrackedOnce){
-            playSound("whipCracked",.35);
+        if (whipCrackedOnce) {
+            playSound('whipCracked', .35);
             whipCrackedOnce = false;
         }
-        if(highNoonOnce){
-            stopSound("mainMusic");
-            playSound("highNoon",.45);
+        if (highNoonOnce) {
+            stopSound('mainMusic');
+            playSound('highNoon', .45);
             highNoonOnce = false;
         }
-        if(tickTockOnce){
-            playSound("tickTock",.45);
+        if (tickTockOnce) {
+            playSound('tickTock', .45);
             tickTockOnce = false;
         }
         drawHighNoonText(ctx);
     }
 
-    if(gs.state == "ticktock"){
+    if (phase === 'ticktock') {
         whipCrackedOnce = true;
-        if(tollOnce){
-            playSound("tollingBell",.50);
+        if (tollOnce) {
+            playSound('tollingBell', .50);
             tollOnce = false;
-         }
-        drawClock(gs,ctx);
+        }
+        drawClock(ctx);
     }
 
-    if(gs.state == "draw"){
-        if(drawOnce){
-            playSound("whipCracked",.35);
-            stopSound("tickTock");
+    if (phase === 'draw') {
+        if (drawOnce) {
+            playSound('whipCracked', .35);
+            stopSound('tickTock');
             drawOnce = false;
         }
         drawDrawText(ctx);
-        //testing code that smashes space immediately after draw
-        //var event = new KeyboardEvent('keydown', {key: ' ', code: 'Space', which: 32, keyCode: 32});
-        //document.dispatchEvent(event);
     }
 
-    if(gs.state == "flashed" || gs.state == "gameover"){
-        if(shootOnce){
-            stopSound("tickTock");
-            playSound("gunShot",.45);
+    if (phase === 'flashed' || phase === 'gameover') {
+        if (shootOnce) {
+            stopSound('tickTock');
+            playSound('gunShot', .45);
             shootOnce = false;
         }
         drawFlashed(ctx);
     }
 
-    if(gs.state == "gameover"){
-        if(gameOverOnce){
-            playSound("mainMusic",.35);
-        }
-        drawGameOverText(gs,ctx);
+    if (phase === 'gameover') {
+        if (gameOverOnce)
+            playSound('mainMusic', .35);
+        drawGameOverText(gs, ctx);
     }
 
-    if(gs.state == "resetting" || gs.state == "waiting"){
+    if (phase === 'resetting' || phase === 'waiting') {
         whipCrackedOnce = true;
         highNoonOnce = true;
-        drawWaitingForQueue(gs,ctx);
+        drawWaitingForQueue(gs, ctx);
     }
+}
 
-}   
-
-function drawWaitingForQueue(gs,ctx) {
+function drawWaitingForQueue(gs, ctx) {
     ctx.fillStyle = 'black';
     ctx.font = '30px ' + fontFamily;
-    var text = "";
-    if(gs.playerQueue.length == 0)
-        text = "Waiting for cowfolk...";
-    else if (gs.player1 == undefined && gs.player2 == undefined && gs.playerQueue.length >= 2)
-        text = "Next up is " + gs.playerQueue[0].name + " and " + gs.playerQueue[1].name + "!";
+    var text;
+    if (gs.playerQueue.length === 0 && !gs.player1 && !gs.player2)
+        text = 'Waiting for cowfolk...';
+    else if (!gs.player1 && !gs.player2 && gs.playerQueue.length >= 2)
+        text = 'Next up is ' + gs.playerQueue[0].name + ' and ' + gs.playerQueue[1].name + '!';
+    else if (gs.playerQueue.length)
+        text = 'Prepared to die ' + gs.playerQueue[0].name + '?';
     else
-        text = "Prepared to die " + gs.playerQueue[0].name + "?";
+        text = 'Need one more soul at this table...';
 
-    const textWidth = ctx.measureText(text).width;
-    const textX = (ctx.canvas.width / 2) - (textWidth / 2) - 5;
-    const textY = (ctx.canvas.height / 2) - 25;
-    ctx.fillText(text, textX, textY);
+    var textWidth = ctx.measureText(text).width;
+    ctx.fillText(text, (ctx.canvas.width / 2) - (textWidth / 2) - 5, (ctx.canvas.height / 2) - 25);
+
+    if (!gs.player1 || !gs.player2) {
+        ctx.font = '20px ' + fontFamily;
+        var code = 'Table code: ' + (gs.roomCode || PeerNet.roomCode());
+        var codeWidth = ctx.measureText(code).width;
+        ctx.fillText(code, (ctx.canvas.width / 2) - (codeWidth / 2) - 5, (ctx.canvas.height / 2) + 20);
+    }
 }
 
 var flashAlpha = 1;
 function drawFlashed(ctx) {
-    ctx.fillStyle = "rgba(255, 255, 255,"+flashAlpha+")";
+    ctx.fillStyle = 'rgba(255, 255, 255,' + flashAlpha + ')';
     ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
     flashAlpha -= .001;
 }
 
-function drawClock(gs, ctx) {
+function drawClock(ctx) {
     flashAlpha = 1; //Reset flash Alpha here because why not
-    const centerX = ctx.canvas.width / 2;
-    const centerY = ctx.canvas.height / 2;
-    const radius = 60;
-    
+    var centerX = ctx.canvas.width / 2;
+    var centerY = ctx.canvas.height / 2;
+    var radius = 60;
+
     ctx.fillStyle = '#fffaed';
     ctx.beginPath();
     ctx.arc(centerX - 5, centerY - 100, radius, 0, 2 * Math.PI);
@@ -305,72 +423,58 @@ function drawClock(gs, ctx) {
     ctx.fill();
 }
 
-function drawGameOverText(gs,ctx) {
+function drawGameOverText(gs, ctx) {
     ctx.fillStyle = 'black';
     ctx.font = '55px ' + fontFamily;
-    var text = "Duel Over!";
+    var text = 'Duel Over!';
     var textWidth = ctx.measureText(text).width;
-    var textX = (ctx.canvas.width / 2) - (textWidth / 2) - 5;
-    var textY = (ctx.canvas.height / 2) - 120;
-    ctx.fillText(text, textX, textY);
+    ctx.fillText(text, (ctx.canvas.width / 2) - (textWidth / 2) - 5, (ctx.canvas.height / 2) - 120);
 
     ctx.font = '28px ' + fontFamily;
     text = gs.reasonForEnd;
     textWidth = ctx.measureText(text).width;
-    textX = (ctx.canvas.width / 2) - (textWidth / 2) - 5;
-    textY = (ctx.canvas.height / 2) - 40;
-    ctx.fillText(text, textX, textY);
+    ctx.fillText(text, (ctx.canvas.width / 2) - (textWidth / 2) - 5, (ctx.canvas.height / 2) - 40);
 }
 
 function drawHighNoonText(ctx) {
     ctx.fillStyle = 'black';
     ctx.font = '50px ' + fontFamily;
     var text = "IT'S HIGH NOON!";
-    const textWidth = ctx.measureText(text).width;
-    const textX = (ctx.canvas.width / 2) - (textWidth / 2) - 5;
-    const textY = (ctx.canvas.height / 2) - 90;
-    ctx.fillText(text, textX, textY);
+    var textWidth = ctx.measureText(text).width;
+    ctx.fillText(text, (ctx.canvas.width / 2) - (textWidth / 2) - 5, (ctx.canvas.height / 2) - 90);
 }
 
 function drawDrawText(ctx) {
     ctx.fillStyle = 'brown';
     ctx.font = '120px ' + fontFamily;
-    var text = "DRAW!";
-    const textWidth = ctx.measureText(text).width;
-    const textX = (ctx.canvas.width / 2) - (textWidth / 2) - 5;
-    const textY = (ctx.canvas.height / 2) - 70;
-    ctx.fillText(text, textX, textY);
+    var text = 'DRAW!';
+    var textWidth = ctx.measureText(text).width;
+    ctx.fillText(text, (ctx.canvas.width / 2) - (textWidth / 2) - 5, (ctx.canvas.height / 2) - 70);
 }
 
-function drawPlayers(ctx, player1, player2) {
-    const canvasWidth = ctx.canvas.width;
-    const rectangleWidth = 20;
-    const rectangleHeight = 60;
-    const gunWidth = 25;
-    const gunHeight = 8;
+function drawPlayers(ctx, phase, player1, player2) {
+    var canvasWidth = ctx.canvas.width;
+    var rectangleWidth = 20;
+    var rectangleHeight = 60;
+    var gunWidth = 25;
+    var gunHeight = 8;
+    var showGuns = (phase === 'flashed' || phase === 'gameover');
 
     if (player1) {
-        // Write player1's name above the red rectangle
         ctx.fillStyle = 'black';
         ctx.font = '18px ' + fontFamily;
-        const textWidth1 = ctx.measureText(player1.name).width;
-        const textX1 = 200 + (rectangleWidth / 2) - (textWidth1 / 2);
-        ctx.fillText(player1.name, textX1, ctx.canvas.height - 160);
+        var textWidth1 = ctx.measureText(player1.name).width;
+        ctx.fillText(player1.name, 200 + (rectangleWidth / 2) - (textWidth1 / 2), ctx.canvas.height - 160);
 
-        // Write player2's fastestDraw next to the player on the right
-        if ((globalState.state == "flashed" || globalState.state == "gameover") && player1.lastDraw != ""){
-            const fastestDrawText = player1.lastDraw + "ms";
-            ctx.fillText(fastestDrawText, 200 - 70, ctx.canvas.height - 110);
-        }
+        if (showGuns && player1.lastDraw !== '')
+            ctx.fillText(player1.lastDraw + 'ms', 200 - 70, ctx.canvas.height - 110);
 
-        // Draw red rectangle on the left side
         ctx.fillStyle = '#E53737';
         if (player1.isDead)
             ctx.fillRect(150, ctx.canvas.height - 100, rectangleHeight, rectangleWidth);
         else {
             ctx.fillRect(200, ctx.canvas.height - 140, rectangleWidth, rectangleHeight);
-
-            if (globalState.state == "flashed" || globalState.state == "gameover") {
+            if (showGuns) {
                 ctx.fillStyle = '#5e666e';
                 ctx.fillRect(220, ctx.canvas.height - 145 + (rectangleHeight / 2) - (gunHeight / 2), gunWidth, gunHeight);
             }
@@ -378,29 +482,20 @@ function drawPlayers(ctx, player1, player2) {
     }
 
     if (player2) {
-        // Write player2's name above the blue rectangle
         ctx.fillStyle = 'black';
         ctx.font = '18px ' + fontFamily;
-        const textWidth2 = ctx.measureText(player2.name).width;
-        const textX2 = (canvasWidth - rectangleWidth) - 200 + (rectangleWidth / 2) - (textWidth2 / 2);
-        ctx.fillText(player2.name, textX2, ctx.canvas.height - 160);
+        var textWidth2 = ctx.measureText(player2.name).width;
+        ctx.fillText(player2.name, (canvasWidth - rectangleWidth) - 200 + (rectangleWidth / 2) - (textWidth2 / 2), ctx.canvas.height - 160);
 
-        // Write player2's fastestDraw next to the player on the right
-        if ((globalState.state == "flashed" || globalState.state == "gameover") && player2.lastDraw != ""){
-            const fastestDrawText = player2.lastDraw + "ms";
-            ctx.fillText(fastestDrawText, canvasWidth - 170, ctx.canvas.height - 110);
-        }
-    
+        if (showGuns && player2.lastDraw !== '')
+            ctx.fillText(player2.lastDraw + 'ms', canvasWidth - 170, ctx.canvas.height - 110);
 
-        // Draw blue rectangle on the right side
         ctx.fillStyle = '#3737E5';
         if (player2.isDead)
             ctx.fillRect((canvasWidth - rectangleWidth) - 195, ctx.canvas.height - 100, rectangleHeight, rectangleWidth);
         else {
-            
             ctx.fillRect((canvasWidth - rectangleWidth) - 200, ctx.canvas.height - 140, rectangleWidth, rectangleHeight);
-                
-            if (globalState.state == "flashed" || globalState.state == "gameover") {
+            if (showGuns) {
                 ctx.fillStyle = '#5e666e';
                 ctx.fillRect((canvasWidth - rectangleWidth) - 200 - gunWidth, ctx.canvas.height - 145 + (rectangleHeight / 2) - (gunHeight / 2), gunWidth, gunHeight);
             }
@@ -409,22 +504,14 @@ function drawPlayers(ctx, player1, player2) {
 }
 
 function drawBackround(ctx) {
-    const squareSize = 10;
-    const numRows = Math.ceil(ctx.canvas.height / squareSize);
-    const numCols = Math.ceil(ctx.canvas.width / squareSize);
+    var squareSize = 10;
+    var numRows = Math.ceil(ctx.canvas.height / squareSize);
+    var numCols = Math.ceil(ctx.canvas.width / squareSize);
 
-    for (let row = 0; row < numRows; row++) {
-        for (let col = 0; col < numCols; col++) {
-            const x = col * squareSize;
-            const y = row * squareSize;
-
-            if ((row + col) % 2 === 0) {
-                ctx.fillStyle = '#FFF0C1';
-            } else {
-                ctx.fillStyle = '#FFEAAA';
-            }
-
-            ctx.fillRect(x, y, squareSize, squareSize);
+    for (var row = 0; row < numRows; row++) {
+        for (var col = 0; col < numCols; col++) {
+            ctx.fillStyle = ((row + col) % 2 === 0) ? '#FFF0C1' : '#FFEAAA';
+            ctx.fillRect(col * squareSize, row * squareSize, squareSize, squareSize);
         }
     }
 
@@ -439,49 +526,77 @@ function drawBackround(ctx) {
     ctx.fillRect(0, ctx.canvas.height - lineWidth, ctx.canvas.width, lineWidth);
 }
 
-function shoot(e){
-    socket.send(JSON.stringify({
-        type:"playerShot",
-        id:playerId
-    }));
+/* =======================================================================
+ * Boot
+ * ==================================================================== */
+$(document).keydown(function (e) {
+    if (e.which !== 32) return;
+    if (!inRoom || !amDueling()) return;
+    var phase = currentPhase();
+    if (phase !== 'draw' && phase !== 'ticktock') return;
     e.preventDefault();
-}
-
-$(document).keydown(function(e) {
-    if (
-    (globalState.state == "draw" || globalState.state == "ticktock") && 
-    (globalState.player1.id == playerId || globalState.player2.id == playerId)
-    ){
-        if(e.which == 32)
-            shoot(e);
-    }
+    pullTrigger(eventTime(e));
 });
 
-$(document).ready(function() {
-    var HNPID = localStorage.getItem('HNPID');
-    if (HNPID) {
-        playerId = HNPID;
+$(document).ready(function () {
+    wireNetwork();
+    requestAnimationFrame(gameLoop);
+
+    var params = new URLSearchParams(location.search);
+    var table = params.get('table');
+    if (table) {
+        $('#roomCodeInput').val(table.toUpperCase());
+        $('#joinHint').text('You were invited to table ' + table.toUpperCase() + '.');
     }
 
-    $('#joinGameButton').click(function() {
-        var playerName = $('#playerNameInput').val();
-        if(playerName == ""){
-          playerName = "Big Iron #"+ (Math.floor(Math.random() * 100) + 1);
-          $('#playerNameInput').val(playerName);
-        }
-        playSound("whipCracked",.35);
-        playSound("mainMusic",.35);
-        socket.send(JSON.stringify({
-            type:"playerJoin",
-            name:playerName,
-            id:playerId
-        }));
+    $('#createRoomButton').click(function () {
+        var name = nameOrDefault();
+        $('#createRoomButton, #joinRoomButton').prop('disabled', true);
+        playSound('whipCracked', .35);
+        playSound('mainMusic', .35);
+        PeerNet.host(name);
     });
 
-    $('#playerNameInput').keypress(function(e) {
+    $('#joinRoomButton').click(function () {
+        var code = $.trim($('#roomCodeInput').val());
+        if (code === '') {
+            showLobbyError('Enter the table code your partner gave you.');
+            return;
+        }
+        var name = nameOrDefault();
+        $('#createRoomButton, #joinRoomButton').prop('disabled', true);
+        playSound('whipCracked', .35);
+        playSound('mainMusic', .35);
+        PeerNet.join(code, name, function (err) {
+            if (err) {
+                showLobbyError(err.message);
+                $('#createRoomButton, #joinRoomButton').prop('disabled', false);
+            }
+        });
+    });
+
+    $('#roomCodeInput').keypress(function (e) {
+        if (e.which === 13) $('#joinRoomButton').click();
+    });
+
+    $('#playerNameInput').keypress(function (e) {
         if (e.which === 13) {
-            $('#joinGameButton').click();
+            if ($.trim($('#roomCodeInput').val()) !== '')
+                $('#joinRoomButton').click();
+            else
+                $('#createRoomButton').click();
         }
     });
-});
 
+    $('#copyLinkButton').click(function () {
+        var link = inviteLink();
+        var button = $(this);
+        var done = function () { button.text('Copied!'); setTimeout(function () { button.text('Copy invite'); }, 1500); };
+        if (navigator.clipboard && navigator.clipboard.writeText)
+            navigator.clipboard.writeText(link).then(done, function () { window.prompt('Copy this link', link); });
+        else
+            window.prompt('Copy this link', link);
+    });
+
+    setInterval(updatePing, 1000);
+});

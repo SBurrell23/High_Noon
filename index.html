@@ -4,9 +4,12 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-T3c6CoIi6uLrA9TneNEoa7RxnatzjcDSCmG1MXxSR1GAsXEV/Dwwykc2MPK8M2HN" crossorigin="anonymous">
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js" integrity="sha384-C6RzsynM9kWDrMNeT87bh95OGNyZPhcTNXj1NW7RuBCsyN/o0jlpcV8Qyq46cDfL" crossorigin="anonymous"></script>
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Permanent Marker&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Rock Salt&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Domine&display=swap" rel="stylesheet">
+    <script src="PeerNet.js"></script>
+    <script src="GameHost.js"></script>
     <script src="GameClient.js"></script>
     <title>High Noon!</title>
 </head>
@@ -32,9 +35,43 @@
     #playerQueue, #queueHeader, #rulesHeader{
         font-family: 'Domine';
     }
-    #joinInputs{
-        margin-top:30px;
-        margin-bottom:10px;
+    #lobbyPanel, #roomPanel{
+        margin-top:20px;
+    }
+    #lobbyDivider{
+        font-family: 'Domine';
+        font-size: 13px;
+        text-align: center;
+        margin: 8px 0px 8px 0px;
+        color: #6b4f2a;
+    }
+    #joinHint, #lobbyError{
+        font-family: 'Domine';
+        font-size: 13px;
+        margin-top: 6px;
+    }
+    #lobbyError{
+        display:none;
+        color:#b02a2a;
+        font-weight:bold;
+    }
+    #roomPanel{
+        display:none;
+        font-family: 'Domine';
+        font-size: 14px;
+        border: 2px dashed #a5793f;
+        border-radius: 6px;
+        padding: 10px;
+        background-color: #ffe9c4;
+    }
+    #roomCodeDisplay{
+        font-family: 'Permanent Marker';
+        font-size: 26px;
+        letter-spacing: 3px;
+    }
+    #connStatus, #pingDisplay{
+        font-size:12px;
+        color:#5c4a33;
     }
     .redQueue td{
         color: #E53737;
@@ -48,14 +85,32 @@
   <div class="row">
     <div class="col-4">
         <div class="text-center" id="gameHeader">High Noon!</div>
-        <div class="input-group">
-            <div class="input-group" id="joinInputs">
-                <input id="playerNameInput" maxlength="15" class="form-control" placeholder="Choose a name partner.." />
-                <button class="btn btn-success" id="joinGameButton" type="button">Deal Me In</button>
+
+        <div id="lobbyPanel">
+            <input id="playerNameInput" maxlength="15" class="form-control" placeholder="Choose a name partner.." />
+            <div class="d-grid" style="margin-top:10px;">
+                <button class="btn btn-success" id="createRoomButton" type="button">Start a New Table</button>
             </div>
+            <div id="lobbyDivider">— or ride out to one —</div>
+            <div class="input-group">
+                <input id="roomCodeInput" maxlength="6" class="form-control text-uppercase" placeholder="Table code" />
+                <button class="btn btn-warning" id="joinRoomButton" type="button">Join</button>
+            </div>
+            <div id="joinHint" class="text-center"></div>
+            <div id="lobbyError" class="text-center"></div>
         </div>
+
+        <div id="roomPanel" class="text-center">
+            <div>Table code</div>
+            <div id="roomCodeDisplay">----</div>
+            <button class="btn btn-sm btn-outline-dark" id="copyLinkButton" type="button">Copy invite</button>
+            <div id="roomRole" style="margin-top:6px;"></div>
+            <div id="pingDisplay"></div>
+            <div id="connStatus"></div>
+        </div>
+
         <div class="text-center">
-            <h3 style="margin-top:30px;" id="queueHeader">Hangmans Queue</h3>
+            <h3 style="margin-top:25px;" id="queueHeader">Hangmans Queue</h3>
             <table class="table table-sm" id="playerQueue">
                 <thead>
                     <tr>
@@ -76,20 +131,23 @@
             <div id="rulesText" class="text-center">
                 <div style="margin-bottom:8px;margin-top:10px;">Wait for the DRAW!</div>
                 <div>Press [Space] to shoot!</div>
-
+                <div style="margin-top:8px;font-weight:normal;font-size:13px;">
+                    Your draw is timed on your own screen, so ping never touches it.
+                </div>
             </div>
         </div>
     </div>
     <div class="col-8">
         <canvas id="canvas" width="1100" height="500" style="border-radius: 4px;"></canvas>
     </div>
+  </div>
 </div>
-<div id="offlineMessage" style="display:flex;position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-color: #ff7979; color: black;justify-content: center; align-items: center; font-size: 34px;z-index: 10000;">
-    <span>Attempting to connect to game server...</span>
+<div id="offlineMessage" style="display:none;position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-color: #ff7979; color: black;justify-content: center; align-items: center; font-size: 34px;z-index: 10000;">
+    <span>The table has folded. Refresh to ride again.</span>
 </div>
 
 
 <br>
-<!-- 
-make sun more sunny 
+<!--
+make sun more sunny
 miss  -->

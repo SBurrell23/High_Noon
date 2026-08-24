@@ -1,13 +1,11 @@
 {
-  "main": "GameServer.js",
-  "dependencies": {
-    "ws": "^8.15.1"
-  },
+  "name": "high-noon",
+  "main": "server.js",
   "engines": {
     "node": "16.18.0"
   },
   "scripts": {
     "deploy": "gcloud app deploy",
-    "start": "node GameServer.js"
+    "start": "node server.js"
   }
 }

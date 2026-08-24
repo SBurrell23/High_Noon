@@ -3,13 +3,10 @@ env: flex
 
 service: high-noon
 
-entrypoint: node GameServer.js
+entrypoint: node server.js
 
 manual_scaling:
   instances: 1
-
-network:
-  session_affinity: true
 
 handlers:
   - url: /.*
