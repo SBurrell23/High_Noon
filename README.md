@@ -3,6 +3,9 @@ It's HIGH NOON!
 
 Wait for the DRAW! and shoot your opponent dead before he shoots you!
 
+Play it at https://sburrell23.github.io/High_Noon/ - GitHub Pages builds from
+the main branch root, so every push to main deploys automatically.
+
 Peer to peer - one player starts a table, everybody else joins with the
 4 character table code. The rules run in the host's browser over WebRTC data
 channels (PeerJS); there is no game server. `server.js` only serves the files.
