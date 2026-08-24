@@ -18,6 +18,7 @@ var myId            = null;
 var drawAtHost      = null;  //scheduled draw instant, on the host clock
 var localDrawTs     = null;  //rAF timestamp of the frame that painted DRAW!
 var localDrawActive = false;
+var localFlashAt    = null;  //when we pulled our own trigger, for instant feedback
 var shotSent        = false;
 var inRoom          = false;
 
@@ -54,6 +55,7 @@ function wireNetwork() {
             drawAtHost      = msg.drawAt;
             localDrawActive = false;
             localDrawTs     = null;
+            localFlashAt    = null;
             shotSent        = false;
         }
     });
@@ -101,6 +103,7 @@ function applyState(gs) {
     if (gs.state === 'highnoon' || gs.state === 'waiting' || gs.state === 'resetting') {
         localDrawActive = false;
         localDrawTs     = null;
+        localFlashAt    = null;
         shotSent        = false;
         drawAtHost      = null;
     }
@@ -113,10 +116,19 @@ function applyState(gs) {
  * ==================================================================== */
 function currentPhase() {
     if (!globalState) return null;
+    var state = globalState.state;
+
+    //Your gun goes off the instant you pull the trigger. The host is still
+    //settling who actually won - it has to wait long enough that a faster shot
+    //from your opponent could not still be in flight - but none of that belongs
+    //on the critical path of your own muzzle flash.
+    if (localFlashAt !== null && (state === 'draw' || state === 'ticktock'))
+        return 'flashed';
+
     //We may have flipped locally a hair before the host's own state change
     //message shows up. What we render is what we are timed against.
-    if (globalState.state === 'ticktock' && localDrawActive) return 'draw';
-    return globalState.state;
+    if (state === 'ticktock' && localDrawActive) return 'draw';
+    return state;
 }
 
 function maybeFlipToDraw(ts) {
@@ -155,7 +167,8 @@ function pullTrigger(ts) {
     var phase = currentPhase();
 
     if (phase === 'ticktock') {
-        shotSent = true;
+        shotSent     = true;
+        localFlashAt = ts;
         PeerNet.sendToHost({ type: 'shot', kind: 'missfire', atHost: PeerNet.toHost(ts) });
         return;
     }
@@ -164,7 +177,8 @@ function pullTrigger(ts) {
 
     var rt = ts - localDrawTs;
     if (!isFinite(rt) || rt < 0) rt = 0;
-    shotSent = true;
+    shotSent     = true;
+    localFlashAt = ts;
     PeerNet.sendToHost({ type: 'shot', kind: 'draw', rt: rt, atHost: PeerNet.toHost(ts) });
 }
 
@@ -220,8 +234,31 @@ function showRoom(info) {
     updatePing();
 }
 
-function inviteLink() {
-    return location.origin + location.pathname + '?table=' + PeerNet.roomCode();
+//The async clipboard rejects whenever the page is not focused, so fall back to
+//the old textarea trick rather than throwing a blocking prompt at the player.
+function copyToClipboard(text, done) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(
+            function () { done(true); },
+            function () { legacyCopy(text, done); }
+        );
+    } else {
+        legacyCopy(text, done);
+    }
+}
+
+function legacyCopy(text, done) {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    var ok = false;
+    try { ok = document.execCommand('copy'); } catch (e) {}
+    document.body.removeChild(ta);
+    done(ok);
 }
 
 function updatePing() {
@@ -271,6 +308,15 @@ function duelistRow(gs, player, label, cls) {
     row.append($('<td>').text(player.missfire));
     row.append($('<td>').text(formatDraw(player.fastestDraw)));
     return row;
+}
+
+//Whatever this browser's own player is called, wherever they are sitting
+function myNameIn(gs) {
+    if (gs.player1 && gs.player1.id === myId) return gs.player1.name;
+    if (gs.player2 && gs.player2.id === myId) return gs.player2.name;
+    for (var i = 0; i < gs.playerQueue.length; i++)
+        if (gs.playerQueue[i].id === myId) return gs.playerQueue[i].name;
+    return null;
 }
 
 function nameFor(player) {
@@ -388,7 +434,7 @@ function drawWaitingForQueue(gs, ctx) {
     else if (!gs.player1 && !gs.player2 && gs.playerQueue.length >= 2)
         text = 'Next up is ' + gs.playerQueue[0].name + ' and ' + gs.playerQueue[1].name + '!';
     else if (gs.playerQueue.length)
-        text = 'Prepared to die ' + gs.playerQueue[0].name + '?';
+        text = 'Prepared to die ' + (myNameIn(gs) || gs.playerQueue[0].name) + '?';
     else
         text = 'Need one more soul at this table...';
 
@@ -588,14 +634,12 @@ $(document).ready(function () {
         }
     });
 
-    $('#copyLinkButton').click(function () {
-        var link = inviteLink();
+    $('#copyCodeButton').click(function () {
         var button = $(this);
-        var done = function () { button.text('Copied!'); setTimeout(function () { button.text('Copy invite'); }, 1500); };
-        if (navigator.clipboard && navigator.clipboard.writeText)
-            navigator.clipboard.writeText(link).then(done, function () { window.prompt('Copy this link', link); });
-        else
-            window.prompt('Copy this link', link);
+        copyToClipboard(PeerNet.roomCode(), function (ok) {
+            button.text(ok ? 'Copied!' : 'Press Ctrl+C');
+            setTimeout(function () { button.text('Copy Code'); }, 1500);
+        });
     });
 
     setInterval(updatePing, 1000);

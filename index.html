@@ -15,8 +15,29 @@
 </head>
 
 <style>
-    html body{
-        background-color: #ffd39ead
+    html{
+        margin: 0;
+    }
+    body{
+        /* the colour lives on body alone so it propagates to the whole canvas
+           without double blending against html's own layer */
+        background-color: #ffd39ead;
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 20px 0px;
+    }
+    #mainContainer{
+        width: 100%;
+        max-width: 1500px;
+    }
+    #canvas{
+        display: block;
+        margin: 0 auto;
+        max-width: 100%;
+        height: auto;
     }
     #gameHeader{
         font-family: 'Permanent Marker';
@@ -81,9 +102,9 @@
     }
 </style>
 
-<div class="container" style="margin:0px;margin-top:25px;">
-  <div class="row">
-    <div class="col-4">
+<div class="container" id="mainContainer">
+  <div class="row align-items-center justify-content-center">
+    <div class="col-12 col-lg-4">
         <div class="text-center" id="gameHeader">High Noon!</div>
 
         <div id="lobbyPanel">
@@ -103,7 +124,7 @@
         <div id="roomPanel" class="text-center">
             <div>Table code</div>
             <div id="roomCodeDisplay">----</div>
-            <button class="btn btn-sm btn-outline-dark" id="copyLinkButton" type="button">Copy invite</button>
+            <button class="btn btn-sm btn-outline-dark" id="copyCodeButton" type="button">Copy Code</button>
             <div id="roomRole" style="margin-top:6px;"></div>
             <div id="pingDisplay"></div>
             <div id="connStatus"></div>
@@ -131,18 +152,15 @@
             <div id="rulesText" class="text-center">
                 <div style="margin-bottom:8px;margin-top:10px;">Wait for the DRAW!</div>
                 <div>Press [Space] to shoot!</div>
-                <div style="margin-top:8px;font-weight:normal;font-size:13px;">
-                    Your draw is timed on your own screen, so ping never touches it.
-                </div>
             </div>
         </div>
     </div>
-    <div class="col-8">
+    <div class="col-12 col-lg-8">
         <canvas id="canvas" width="1100" height="500" style="border-radius: 4px;"></canvas>
     </div>
   </div>
 </div>
-<div id="offlineMessage" style="display:none;position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-color: #ff7979; color: black;justify-content: center; align-items: center; font-size: 34px;z-index: 10000;">
+<div id="offlineMessage" style="display:none;position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: #ff7979; color: black;justify-content: center; align-items: center; font-size: 34px;z-index: 10000;">
     <span>The table has folded. Refresh to ride again.</span>
 </div>
 
